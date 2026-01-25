@@ -72,10 +72,23 @@ namespace MegaCrossbows
             // Handle zoom
             HandleZoom(__instance, currentWeapon);
             
-            // Handle automatic fire
+            // Handle automatic fire and reload
             if (currentWeapon != null && IsCrossbow(currentWeapon))
             {
+                var data = GetPlayerData(__instance);
+                
+                // Check if we need to complete reload
+                if (data.isReloading && Time.time - data.reloadStartTime >= CrossbowData.reloadDuration)
+                {
+                    data.isReloading = false;
+                    data.currentMagazine = MegaCrossbowsPlugin.MagazineCapacity.Value;
+                    __instance.Message(MessageHud.MessageType.Center, $"Reloaded! ({data.currentMagazine} rounds)");
+                }
+                
+                // Handle firing
                 HandleAutomaticFire(__instance, currentWeapon);
+                
+                // Update HUD
                 UpdateHUD(__instance, currentWeapon);
             }
         }
@@ -151,10 +164,12 @@ namespace MegaCrossbows
         {
             bool hasCrossbow = weapon != null && IsCrossbow(weapon);
             
+            // Enable zoom when right mouse button is held
             if (hasCrossbow && Input.GetMouseButton(1))
             {
                 if (!isZooming)
                 {
+                    // Start zooming
                     isZooming = true;
                     vanillaZoomDisabled = true;
                     if (GameCamera.instance != null)
@@ -175,7 +190,7 @@ namespace MegaCrossbows
                     );
                 }
 
-                // Apply zoom
+                // Apply zoom every frame while held
                 if (GameCamera.instance != null)
                 {
                     GameCamera.instance.m_fov = originalFov / currentZoom;
@@ -183,6 +198,7 @@ namespace MegaCrossbows
             }
             else if (isZooming)
             {
+                // Disable zoom when right mouse button is released
                 isZooming = false;
                 vanillaZoomDisabled = false;
                 if (GameCamera.instance != null)
@@ -194,23 +210,18 @@ namespace MegaCrossbows
 
         private static void HandleAutomaticFire(Player player, ItemDrop.ItemData weapon)
         {
+            // Only fire if mouse button is held
             if (!Input.GetMouseButton(0)) return;
 
             var data = GetPlayerData(player);
             
-            // Check if reloading
+            // Don't fire while reloading
             if (data.isReloading)
             {
-                if (Time.time - data.reloadStartTime >= CrossbowData.reloadDuration)
-                {
-                    data.isReloading = false;
-                    data.currentMagazine = MegaCrossbowsPlugin.MagazineCapacity.Value;
-                    player.Message(MessageHud.MessageType.Center, $"Reloaded! ({data.currentMagazine} rounds)");
-                }
                 return;
             }
 
-            // Check magazine
+            // Start reload if magazine is empty
             if (data.currentMagazine <= 0)
             {
                 if (!data.isReloading)
@@ -327,12 +338,6 @@ namespace MegaCrossbows
             // Reduce stamina slightly
             float staminaDrain = weapon.m_shared.m_attack.m_attackStamina * 0.1f;
             player.UseStamina(staminaDrain);
-            
-            // Add some camera shake for feedback
-            if (GameCamera.instance != null)
-            {
-                GameCamera.instance.AddShake(player.transform.position, 2f, 0.1f, false);
-            }
         }
 
         // Disable vanilla zoom when using crossbow zoom
