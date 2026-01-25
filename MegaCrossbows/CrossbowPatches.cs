@@ -147,13 +147,6 @@ namespace MegaCrossbows
             return -1f;
         }
 
-        [HarmonyPatch("OnGUI")]
-        [HarmonyPostfix]
-        public static void OnGUI_Postfix(Player __instance)
-        {
-            // Reserved for future custom GUI if needed
-        }
-
         private static void HandleZoom(Player player, ItemDrop.ItemData weapon)
         {
             bool hasCrossbow = weapon != null && IsCrossbow(weapon);
