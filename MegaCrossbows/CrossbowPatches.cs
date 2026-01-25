@@ -52,6 +52,7 @@ namespace MegaCrossbows
             string weaponName = weapon.m_shared.m_name.ToLower();
             return weaponName.Contains("crossbow") || 
                    weaponName.Contains("arbalest") ||
+                   weaponName.Contains("ripper") ||
                    weapon.m_shared.m_skillType == Skills.SkillType.Crossbows;
         }
 
@@ -174,6 +175,7 @@ namespace MegaCrossbows
             string weaponName = weapon.m_shared.m_name.ToLower();
             return weaponName.Contains("crossbow") || 
                    weaponName.Contains("arbalest") ||
+                   weaponName.Contains("ripper") ||
                    weapon.m_shared.m_skillType == Skills.SkillType.Crossbows;
         }
 
