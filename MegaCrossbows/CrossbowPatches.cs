@@ -2,6 +2,7 @@ using HarmonyLib;
 using UnityEngine;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Linq;
 
 namespace MegaCrossbows
 {
@@ -12,6 +13,7 @@ namespace MegaCrossbows
         public bool isReloading;
         public float reloadStartTime;
         public const float reloadDuration = 2f;
+        public float lastHudUpdate = 0f;
 
         public CrossbowData()
         {
@@ -31,7 +33,7 @@ namespace MegaCrossbows
     public class PlayerPatches
     {
         private static Dictionary<string, CrossbowData> playerCrossbowData = new Dictionary<string, CrossbowData>();
-        private static bool isZooming = false;
+        public static bool isZooming = false;
         private static float currentZoom = 1f;
         private static float originalFov = 65f;
         private static bool vanillaZoomDisabled = false;
@@ -74,7 +76,82 @@ namespace MegaCrossbows
             if (currentWeapon != null && IsCrossbow(currentWeapon))
             {
                 HandleAutomaticFire(__instance, currentWeapon);
+                UpdateHUD(__instance, currentWeapon);
             }
+        }
+
+        private static void UpdateHUD(Player player, ItemDrop.ItemData weapon)
+        {
+            var data = GetPlayerData(player);
+            
+            // Update HUD every 0.5 seconds
+            if (Time.time - data.lastHudUpdate < 0.5f) return;
+            data.lastHudUpdate = Time.time;
+
+            // Get ammo count from inventory
+            int inventoryAmmo = GetInventoryBoltCount(player, weapon);
+            
+            // Get target distance
+            float targetDistance = GetTargetDistance();
+            string distanceText = targetDistance > 0 ? $"{targetDistance:F0}m" : "---";
+
+            // Build HUD message
+            string hudMessage = data.isReloading 
+                ? "RELOADING..." 
+                : $"MAG: {data.currentMagazine}/{MegaCrossbowsPlugin.MagazineCapacity.Value} | AMMO: {inventoryAmmo} | RANGE: {distanceText}";
+
+            player.Message(MessageHud.MessageType.TopLeft, hudMessage);
+        }
+
+        private static int GetInventoryBoltCount(Player player, ItemDrop.ItemData weapon)
+        {
+            if (player == null || weapon == null) return 0;
+
+            // Get ammo type for this weapon
+            string ammoName = weapon.m_shared.m_ammoType;
+
+            // Count bolts in inventory
+            int count = 0;
+            var inventory = player.GetInventory();
+            if (inventory != null)
+            {
+                foreach (var item in inventory.GetAllItems())
+                {
+                    if (!string.IsNullOrEmpty(ammoName) && item.m_shared.m_ammoType == ammoName)
+                    {
+                        count += item.m_stack;
+                    }
+                    else if (item.m_shared.m_name.ToLower().Contains("bolt"))
+                    {
+                        count += item.m_stack;
+                    }
+                }
+            }
+
+            return count;
+        }
+
+        private static float GetTargetDistance()
+        {
+            if (GameCamera.instance == null) return -1f;
+
+            // Raycast from camera forward
+            Ray ray = new Ray(GameCamera.instance.transform.position, GameCamera.instance.transform.forward);
+            RaycastHit hit;
+
+            if (Physics.Raycast(ray, out hit, 500f))
+            {
+                return hit.distance;
+            }
+
+            return -1f;
+        }
+
+        [HarmonyPatch("OnGUI")]
+        [HarmonyPostfix]
+        public static void OnGUI_Postfix(Player __instance)
+        {
+            // Reserved for future custom GUI if needed
         }
 
         private static void HandleZoom(Player player, ItemDrop.ItemData weapon)
@@ -179,9 +256,27 @@ namespace MegaCrossbows
             var currentAttack = player.GetCurrentWeapon()?.m_shared?.m_attack;
             if (currentAttack == null) return;
 
-            // Spawn the projectile directly
-            var attackOrigin = player.transform.position + player.transform.forward * 0.5f + Vector3.up * 1.5f;
-            var attackDir = GameCamera.instance.transform.forward;
+            // Use raycast to determine exact aim point
+            Vector3 attackOrigin = player.transform.position + player.transform.forward * 0.5f + Vector3.up * 1.5f;
+            Vector3 attackDir = GameCamera.instance.transform.forward;
+            Vector3 targetPoint;
+
+            // Raycast from camera to find target point
+            Ray ray = new Ray(GameCamera.instance.transform.position, GameCamera.instance.transform.forward);
+            RaycastHit hit;
+            
+            if (Physics.Raycast(ray, out hit, 500f))
+            {
+                // Aim at raycast hit point for perfect accuracy
+                targetPoint = hit.point;
+                attackDir = (targetPoint - attackOrigin).normalized;
+            }
+            else
+            {
+                // No hit, aim forward
+                targetPoint = ray.origin + ray.direction * 500f;
+                attackDir = (targetPoint - attackOrigin).normalized;
+            }
 
             // Get projectile prefab
             if (currentAttack.m_attackProjectile != null)
