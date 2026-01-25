@@ -34,6 +34,7 @@ namespace MegaCrossbows
         private static bool isZooming = false;
         private static float currentZoom = 1f;
         private static float originalFov = 65f;
+        private static bool vanillaZoomDisabled = false;
 
         private static CrossbowData GetPlayerData(Player player)
         {
@@ -85,6 +86,7 @@ namespace MegaCrossbows
                 if (!isZooming)
                 {
                     isZooming = true;
+                    vanillaZoomDisabled = true;
                     if (GameCamera.instance != null)
                     {
                         originalFov = GameCamera.instance.m_fov;
@@ -92,16 +94,18 @@ namespace MegaCrossbows
                     currentZoom = MegaCrossbowsPlugin.ZoomMin.Value;
                 }
 
+                // Handle zoom adjustment with scroll wheel
                 float scroll = Input.GetAxis("Mouse ScrollWheel");
-                if (scroll != 0f)
+                if (Mathf.Abs(scroll) > 0.01f)
                 {
                     currentZoom = Mathf.Clamp(
-                        currentZoom - scroll * 2f,
+                        currentZoom + scroll * 5f,
                         MegaCrossbowsPlugin.ZoomMin.Value,
                         MegaCrossbowsPlugin.ZoomMax.Value
                     );
                 }
 
+                // Apply zoom
                 if (GameCamera.instance != null)
                 {
                     GameCamera.instance.m_fov = originalFov / currentZoom;
@@ -110,6 +114,7 @@ namespace MegaCrossbows
             else if (isZooming)
             {
                 isZooming = false;
+                vanillaZoomDisabled = false;
                 if (GameCamera.instance != null)
                 {
                     GameCamera.instance.m_fov = originalFov;
@@ -130,12 +135,9 @@ namespace MegaCrossbows
                 {
                     data.isReloading = false;
                     data.currentMagazine = MegaCrossbowsPlugin.MagazineCapacity.Value;
-                    player.Message(MessageHud.MessageType.Center, "Reloaded!");
+                    player.Message(MessageHud.MessageType.Center, $"Reloaded! ({data.currentMagazine} rounds)");
                 }
-                else
-                {
-                    return;
-                }
+                return;
             }
 
             // Check magazine
@@ -161,8 +163,100 @@ namespace MegaCrossbows
             data.lastFireTime = Time.time;
             data.currentMagazine--;
             
-            // Trigger attack
-            player.StartAttack(null, false);
+            // Show magazine count periodically
+            if (data.currentMagazine % 100 == 0 || data.currentMagazine <= 10)
+            {
+                player.Message(MessageHud.MessageType.TopLeft, $"Ammo: {data.currentMagazine}");
+            }
+
+            // Directly fire the projectile
+            FireProjectile(player, weapon);
+        }
+
+        private static void FireProjectile(Player player, ItemDrop.ItemData weapon)
+        {
+            // Get the attack component
+            var currentAttack = player.GetCurrentWeapon()?.m_shared?.m_attack;
+            if (currentAttack == null) return;
+
+            // Spawn the projectile directly
+            var attackOrigin = player.transform.position + player.transform.forward * 0.5f + Vector3.up * 1.5f;
+            var attackDir = GameCamera.instance.transform.forward;
+
+            // Get projectile prefab
+            if (currentAttack.m_attackProjectile != null)
+            {
+                var projectileObj = Object.Instantiate(currentAttack.m_attackProjectile, attackOrigin, Quaternion.LookRotation(attackDir));
+                var projectile = projectileObj.GetComponent<Projectile>();
+                
+                if (projectile != null)
+                {
+                    // Calculate velocity
+                    float velocityMult = MegaCrossbowsPlugin.Velocity.Value / 100f;
+                    Vector3 velocity = attackDir * currentAttack.m_projectileVel * velocityMult;
+                    
+                    // Setup projectile
+                    HitData hitData = new HitData();
+                    hitData.m_damage = weapon.GetDamage();
+                    hitData.m_pushForce = 10f;
+                    hitData.m_backstabBonus = 4f;
+                    hitData.m_skill = weapon.m_shared.m_skillType;
+                    
+                    // Apply damage multiplier
+                    float damageMult = MegaCrossbowsPlugin.DamageMultiplier.Value / 100f;
+                    hitData.ApplyModifier(damageMult);
+                    
+                    // Setup projectile with ammo (use weapon as ammo for crossbow)
+                    projectile.Setup(player, velocity, currentAttack.m_attackHitNoise, hitData, weapon, weapon);
+                    
+                    // Disable gravity if configured
+                    if (MegaCrossbowsPlugin.NoGravity.Value)
+                    {
+                        var rb = projectile.GetComponent<Rigidbody>();
+                        if (rb != null)
+                        {
+                            rb.useGravity = false;
+                        }
+                    }
+                }
+            }
+
+            // Play attack animation using reflection to access protected field
+            try
+            {
+                var zanimField = typeof(Character).GetField("m_zanim", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (zanimField != null)
+                {
+                    var zanim = zanimField.GetValue(player) as ZSyncAnimation;
+                    if (zanim != null && weapon.m_shared.m_attack.m_attackAnimation != "")
+                    {
+                        zanim.SetTrigger(weapon.m_shared.m_attack.m_attackAnimation);
+                    }
+                }
+            }
+            catch { }
+            
+            // Reduce stamina slightly
+            float staminaDrain = weapon.m_shared.m_attack.m_attackStamina * 0.1f;
+            player.UseStamina(staminaDrain);
+            
+            // Add some camera shake for feedback
+            if (GameCamera.instance != null)
+            {
+                GameCamera.instance.AddShake(player.transform.position, 2f, 0.1f, false);
+            }
+        }
+
+        // Disable vanilla zoom when using crossbow zoom
+        [HarmonyPatch("UpdatePlacementGhost")]
+        [HarmonyPrefix]
+        public static void UpdatePlacementGhost_Prefix(Player __instance)
+        {
+            if (vanillaZoomDisabled && Input.GetMouseButton(1))
+            {
+                // Block vanilla zoom
+                Input.ResetInputAxes();
+            }
         }
     }
 
