@@ -603,14 +603,21 @@ namespace MegaCrossbows
             try { if (MegaCrossbowsPlugin.AoeRadius.Value > 0) projectile.m_aoe = MegaCrossbowsPlugin.AoeRadius.Value; } catch { }
 
             // 7b. Extend ZDO range — Valheim's zone system destroys network objects
-            // beyond ~64-100m from the player. Setting m_distant=true on the ZNetView
-            // tells the ZDO system to keep the projectile alive at greater distances.
+            // beyond ~64-100m from the player. m_distant=true extends sync range,
+            // m_persistent keeps it from being cleaned up, and setting the ZDO type
+            // to Prioritized gives it maximum active range. Applies to ALL bolts.
             try
             {
                 var nview = proj.GetComponent<ZNetView>();
                 if (nview != null)
                 {
                     nview.m_distant = true;
+                    nview.m_persistent = true;
+                    // Set ZDO type for extended range (must be done after ZDO is created)
+                    if (nview.GetZDO() != null)
+                    {
+                        nview.GetZDO().SetType(ZDO.ObjectType.Prioritized);
+                    }
                 }
             }
             catch { }
