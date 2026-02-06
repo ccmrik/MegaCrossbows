@@ -1421,6 +1421,59 @@ namespace MegaCrossbows
         }
 
         /// <summary>
+        /// Checks if a HitData is tagged for object destruction.
+        /// </summary>
+        public static bool IsDestroyTagged(HitData hit)
+        {
+            if (hit == null) return false;
+            return hit.m_damage.m_chop >= 999000f || hit.m_damage.m_pickaxe >= 999000f;
+        }
+
+        /// <summary>
+        /// Force-destroys an object that survived our 999999 damage due to immunity/resistance.
+        /// Bypasses all damage checks by directly destroying via ZNetView or setting health to 0.
+        /// </summary>
+        public static void ForceDestroyIfNeeded(Component target, HitData hit, string typeName)
+        {
+            if (!IsDestroyTagged(hit)) return;
+            if (target == null || target.gameObject == null) return;
+
+            try
+            {
+                // Try setting health fields to 0 via reflection (many types use m_health)
+                var healthField = target.GetType().GetField("m_health", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (healthField != null && healthField.FieldType == typeof(float))
+                {
+                    float hp = (float)healthField.GetValue(target);
+                    if (hp > 0)
+                    {
+                        healthField.SetValue(target, 0f);
+                        ModLogger.Log($"Force-destroy: Set {typeName}.m_health from {hp:F0} to 0");
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                // Force-destroy via ZNetView (network-safe destruction)
+                var nview = target.GetComponent<ZNetView>();
+                if (nview == null) nview = target.GetComponentInParent<ZNetView>();
+                if (nview != null && nview.IsValid())
+                {
+                    // Claim ownership so we have authority to destroy
+                    if (!nview.IsOwner())
+                    {
+                        nview.ClaimOwnership();
+                    }
+                    nview.Destroy();
+                    ModLogger.Log($"Force-destroy: ZNetView.Destroy() on {typeName} ({target.gameObject.name})");
+                }
+            }
+            catch (Exception ex) { ModLogger.LogError($"Force-destroy {typeName}: {ex.Message}"); }
+        }
+
+        /// <summary>
         /// Creates a destroy-level HitData for AOE spread hits.
         /// </summary>
         private static HitData CreateDestroyHitData(Vector3 hitPoint)
@@ -1484,35 +1537,35 @@ namespace MegaCrossbows
 
                     HitData aoeHit = CreateDestroyHitData(go.transform.position);
 
-                    // Try each destructible type
+                    // Try each destructible type — damage first, then force-destroy if survived
                     try
                     {
                         var tree = go.GetComponentInParent<TreeBase>();
-                        if (tree != null) { tree.Damage(aoeHit); destroyCount++; continue; }
+                        if (tree != null) { tree.Damage(aoeHit); ForceDestroyIfNeeded(tree, aoeHit, "TreeBase(AOE)"); destroyCount++; continue; }
                     }
                     catch { }
                     try
                     {
                         var log = go.GetComponentInParent<TreeLog>();
-                        if (log != null) { log.Damage(aoeHit); destroyCount++; continue; }
+                        if (log != null) { log.Damage(aoeHit); ForceDestroyIfNeeded(log, aoeHit, "TreeLog(AOE)"); destroyCount++; continue; }
                     }
                     catch { }
                     try
                     {
                         var dest = go.GetComponentInParent<Destructible>();
-                        if (dest != null) { dest.Damage(aoeHit); destroyCount++; continue; }
+                        if (dest != null) { dest.Damage(aoeHit); ForceDestroyIfNeeded(dest, aoeHit, "Destructible(AOE)"); destroyCount++; continue; }
                     }
                     catch { }
                     try
                     {
                         var rock = go.GetComponentInParent<MineRock>();
-                        if (rock != null) { rock.Damage(aoeHit); destroyCount++; continue; }
+                        if (rock != null) { rock.Damage(aoeHit); ForceDestroyIfNeeded(rock, aoeHit, "MineRock(AOE)"); destroyCount++; continue; }
                     }
                     catch { }
                     try
                     {
                         var rock5 = go.GetComponentInParent<MineRock5>();
-                        if (rock5 != null) { rock5.Damage(aoeHit); destroyCount++; continue; }
+                        if (rock5 != null) { rock5.Damage(aoeHit); ForceDestroyIfNeeded(rock5, aoeHit, "MineRock5(AOE)"); destroyCount++; continue; }
                     }
                     catch { }
                 }
@@ -1537,8 +1590,10 @@ namespace MegaCrossbows
             try { DestroyObjectsHelper.TryApplyDestroyDamage(hit); }
             catch { }
         }
-        public static void Postfix(HitData hit)
+        public static void Postfix(TreeBase __instance, HitData hit)
         {
+            try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "TreeBase"); }
+            catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit); }
             catch { }
         }
@@ -1553,8 +1608,10 @@ namespace MegaCrossbows
             try { DestroyObjectsHelper.TryApplyDestroyDamage(hit); }
             catch { }
         }
-        public static void Postfix(HitData hit)
+        public static void Postfix(TreeLog __instance, HitData hit)
         {
+            try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "TreeLog"); }
+            catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit); }
             catch { }
         }
@@ -1569,8 +1626,10 @@ namespace MegaCrossbows
             try { DestroyObjectsHelper.TryApplyDestroyDamage(hit); }
             catch { }
         }
-        public static void Postfix(HitData hit)
+        public static void Postfix(Destructible __instance, HitData hit)
         {
+            try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "Destructible"); }
+            catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit); }
             catch { }
         }
@@ -1585,8 +1644,10 @@ namespace MegaCrossbows
             try { DestroyObjectsHelper.TryApplyDestroyDamage(hit); }
             catch { }
         }
-        public static void Postfix(HitData hit)
+        public static void Postfix(MineRock __instance, HitData hit)
         {
+            try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "MineRock"); }
+            catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit); }
             catch { }
         }
@@ -1601,8 +1662,10 @@ namespace MegaCrossbows
             try { DestroyObjectsHelper.TryApplyDestroyDamage(hit); }
             catch { }
         }
-        public static void Postfix(HitData hit)
+        public static void Postfix(MineRock5 __instance, HitData hit)
         {
+            try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "MineRock5"); }
+            catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit); }
             catch { }
         }
