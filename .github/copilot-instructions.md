@@ -113,41 +113,48 @@ Two-layer approach for reliable DoT:
 - Prefab found at runtime: tries known names, then searches `Cinder.m_houseFirePrefab`, then any prefab with `Fire` component
 - Cached after first lookup
 
-### 6. Bolt Stack Size (`PatchBoltStackSize` on `ObjectDB.Awake`)
+### 6. Ember Explosion (`EmberExplosionHelper`)
+- ALT-mode bolt impacts also spawn the Staff of Embers explosion (`Aoe` prefab) at hit point
+- Implemented via the same `Projectile.m_onHit` callback as HouseFire
+- Aoe owner set to the firing player for proper damage attribution
+- Prefab found at runtime: tries known item names (`StaffFireball`, etc.), then searches `ObjectDB.m_items` for staff+fire items, then ZNetScene projectiles with fire Aoe `m_spawnOnHit`
+- Cached after first lookup
+
+### 7. Bolt Stack Size (`PatchBoltStackSize` on `ObjectDB.Awake`)
 - Sets `m_maxStackSize = 1000` for all bolt items
 
-### 7. Projectile Physics
+### 8. Projectile Physics
 - Bolt spawns at player chest height, aimed at crosshair raycast point
 - Velocity multiplied by config (470 default = ~940 m/s)
 - Optional no-gravity (both `Projectile.m_gravity` and `Rigidbody.useGravity`)
 - **CCD** (`CollisionDetectionMode.ContinuousDynamic`) always enabled to prevent tunneling
 - AOE radius configurable (shared between combat and object destruction)
 
-### 8. Zoom System (`HandleZoom` / `ResetZoom`)
+### 9. Zoom System (`HandleZoom` / `ResetZoom`)
 - **Right mouse hold** = zoom in, scroll wheel adjusts level
 - Modifies `GameCamera.instance.m_fov`
 - FOV restored on release or when UI opens
 
-### 9. Magazine / Reload
+### 10. Magazine / Reload
 - Magazine counts down per shot
 - At zero ? 2-second reload with HUD message
 
-### 10. HUD (`CrossbowHUD` MonoBehaviour)
+### 11. HUD (`CrossbowHUD` MonoBehaviour)
 - `OnGUI()` renders ammo count, zoom level, distance to target
 - HUD throttled to 10 updates/sec for performance
 
-### 11. Building Damage (`PatchBuildingDamage` on `WearNTear.Damage`)
+### 12. Building Damage (`PatchBuildingDamage` on `WearNTear.Damage`)
 - Building damage multiplier, fire damage injection, fire spread, Ashlands ignite
 
-### 12. Crossbow Detection (`CrossbowHelper`)
+### 13. Crossbow Detection (`CrossbowHelper`)
 - Checks `m_skillType == Skills.SkillType.Crossbows`
 - Fallback: name contains "crossbow", "arbalest", or "ripper"
 - Fallback: ammo type contains "bolt"
 
-### 13. Durability
+### 14. Durability
 - Crossbows set to effectively indestructible
 
-### 14. Live Config Reload
+### 15. Live Config Reload
 - `FileSystemWatcher` monitors the `.cfg` file
 - All `ConfigEntry.Value` properties read at point of use (not cached)
 

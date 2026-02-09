@@ -655,7 +655,7 @@ namespace MegaCrossbows
                 }
                 catch { }
 
-                // Spawn HouseFire at impact point on ANY hit (terrain, creatures, objects, etc.)
+                // Spawn HouseFire + Staff of Embers explosion at impact point on ANY hit
                 try
                 {
                     projectile.m_onHit = (OnProjectileHit)System.Delegate.Combine(
@@ -663,7 +663,10 @@ namespace MegaCrossbows
                         new OnProjectileHit((Collider col, Vector3 hitPoint, bool water) =>
                         {
                             if (!water)
+                            {
                                 HouseFireHelper.SpawnFire(hitPoint);
+                                EmberExplosionHelper.SpawnExplosion(hitPoint, player);
+                            }
                         }));
                 }
                 catch { }
@@ -2007,6 +2010,132 @@ namespace MegaCrossbows
                     cachedDotRadius = fire.m_dotRadius;
             }
             catch { }
+        }
+    }
+
+    // =========================================================================
+    // EMBER EXPLOSION - Spawns the Staff of Embers explosion (Aoe) on ALT-mode
+    // bolt impacts. Finds the Aoe prefab at runtime by searching ObjectDB items
+    // for the staff's projectile, then grabbing its m_spawnOnHit.
+    // =========================================================================
+    public static class EmberExplosionHelper
+    {
+        private static GameObject cachedAoePrefab;
+        private static bool searchDone = false;
+
+        public static void SpawnExplosion(Vector3 position, Character owner)
+        {
+            try
+            {
+                if (!searchDone) FindAoePrefab();
+                if (cachedAoePrefab == null) return;
+
+                var go = UnityEngine.Object.Instantiate(cachedAoePrefab, position, Quaternion.identity);
+
+                // Configure the Aoe with the player as owner so damage is attributed correctly
+                var aoe = go.GetComponent<Aoe>();
+                if (aoe != null)
+                {
+                    try
+                    {
+                        var ownerField = typeof(Aoe).GetField("m_owner", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (ownerField != null) ownerField.SetValue(aoe, owner);
+                    }
+                    catch { }
+                }
+
+                // Also try IProjectile.Setup if the Aoe implements it (sets owner for damage credit)
+                var proj = go.GetComponent<IProjectile>();
+                if (proj != null)
+                {
+                    try { proj.Setup(owner, Vector3.zero, 0f, null, null, null); }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
+        private static void FindAoePrefab()
+        {
+            searchDone = true;
+            try
+            {
+                if (ObjectDB.instance == null) return;
+
+                // Try known staff item names — the Staff of Embers projectile contains the Aoe prefab
+                string[] knownNames = { "StaffFireball", "StaffEmbers", "staff_embers", "Staff_embers" };
+                foreach (var name in knownNames)
+                {
+                    var aoePrefab = TryGetAoeFromItem(name);
+                    if (aoePrefab != null)
+                    {
+                        cachedAoePrefab = aoePrefab;
+                        return;
+                    }
+                }
+
+                // Fallback: search all items for one with "staff" and "fire" in its name
+                foreach (var itemGo in ObjectDB.instance.m_items)
+                {
+                    if (itemGo == null) continue;
+                    var lowerName = itemGo.name.ToLowerInvariant();
+                    if (lowerName.Contains("staff") && (lowerName.Contains("fire") || lowerName.Contains("ember")))
+                    {
+                        var aoePrefab = TryGetAoeFromItemObject(itemGo);
+                        if (aoePrefab != null)
+                        {
+                            cachedAoePrefab = aoePrefab;
+                            return;
+                        }
+                    }
+                }
+
+                // Last resort: search ZNetScene prefabs for any projectile with an Aoe m_spawnOnHit
+                if (ZNetScene.instance != null)
+                {
+                    foreach (var prefab in ZNetScene.instance.m_prefabs)
+                    {
+                        if (prefab == null) continue;
+                        var proj = prefab.GetComponent<Projectile>();
+                        if (proj == null || proj.m_spawnOnHit == null) continue;
+                        var aoe = proj.m_spawnOnHit.GetComponent<Aoe>();
+                        if (aoe != null && aoe.m_damage.m_fire > 0f)
+                        {
+                            cachedAoePrefab = proj.m_spawnOnHit;
+                            return;
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static GameObject TryGetAoeFromItem(string itemName)
+        {
+            try
+            {
+                var itemPrefab = ObjectDB.instance.GetItemPrefab(itemName);
+                return TryGetAoeFromItemObject(itemPrefab);
+            }
+            catch { return null; }
+        }
+
+        private static GameObject TryGetAoeFromItemObject(GameObject itemGo)
+        {
+            try
+            {
+                if (itemGo == null) return null;
+                var itemDrop = itemGo.GetComponent<ItemDrop>();
+                if (itemDrop == null) return null;
+                var attackProj = itemDrop.m_itemData.m_shared.m_attack.m_attackProjectile;
+                if (attackProj == null) return null;
+                var proj = attackProj.GetComponent<Projectile>();
+                if (proj == null || proj.m_spawnOnHit == null) return null;
+                if (proj.m_spawnOnHit.GetComponent<Aoe>() != null)
+                    return proj.m_spawnOnHit;
+            }
+            catch { }
+            return null;
         }
     }
 
