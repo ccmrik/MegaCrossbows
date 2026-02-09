@@ -73,7 +73,7 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="xcopy &quot;$(TargetPath)&quot; &quot;C:\Users\rikal\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins\$(ProjectName)\&quot; /Y /I" />
+    <Exec Command="xcopy &quot;$(TargetPath)&quot; &quot;C:\Users\rikal\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins\$(ProjectName)\&quot; /Y /I" IgnoreExitCode="true" />
     <!-- Delete config file to ensure fresh defaults are used -->
     <Exec Command="del /Q &quot;C:\Users\rikal\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\config\com.rikal.megacrossbows.cfg&quot; 2>nul" IgnoreExitCode="true" />
   </Target>

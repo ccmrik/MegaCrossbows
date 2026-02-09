@@ -204,6 +204,30 @@ namespace MegaCrossbows
     }
 
     // =========================================================================
+    // SUPPRESS FLOATING DAMAGE TEXT while crossbow is equipped.
+    // At high fire rates the vanilla DamageText system floods the screen
+    // with thousands of numbers, causing massive visual/perf issues.
+    // =========================================================================
+    [HarmonyPatch(typeof(DamageText), "AddInworldText")]
+    public static class PatchSuppressDamageText
+    {
+        public static bool Prefix()
+        {
+            try
+            {
+                if (!MegaCrossbowsPlugin.ModEnabled.Value) return true;
+                var player = Player.m_localPlayer;
+                if (player == null) return true;
+                var weapon = player.GetCurrentWeapon();
+                if (weapon != null && CrossbowHelper.IsCrossbow(weapon))
+                    return false;
+            }
+            catch { }
+            return true;
+        }
+    }
+
+    // =========================================================================
     // MAIN MOD LOGIC - Player.Update postfix (VERIFIED)
     // =========================================================================
     [HarmonyPatch(typeof(Player), "Update")]
@@ -213,10 +237,19 @@ namespace MegaCrossbows
         private static Dictionary<long, CrossbowState> states = new Dictionary<long, CrossbowState>();
         private static CrossbowHUD hudComponent;
 
-        // Zoom
+        // Zoom / Scope
         private static bool zooming = false;
         private static float zoomLevel = 2f;
         private static float savedFOV = 65f;
+        private static float savedDistance = 4f;
+        private static float savedMinDistance = 1f;
+        private static float savedMaxDistance = 6f;
+
+        // Cached reflection for GameCamera distance fields
+        private static FieldInfo camDistField;
+        private static FieldInfo camMinDistField;
+        private static FieldInfo camMaxDistField;
+        private static bool camFieldsCached = false;
 
         // Fire timing
         private static float lastFireTime = 0f;
@@ -227,15 +260,11 @@ namespace MegaCrossbows
 
         // Cached animator for speed control
         private static Animator cachedAnimator;
-        private static bool effectsDiagLogged = false;
 
         // Cached audio for reliable sound per shot
         private static AudioSource cachedAudioSource;
         private static AudioClip cachedFireClip;
         private static bool fireClipSearched = false;
-
-        // Damage diagnostic throttle
-        private static float lastDamageDiagTime = 0f;
 
         // HUD throttle
         private static float lastHudUpdate = 0f;
@@ -271,27 +300,13 @@ namespace MegaCrossbows
         /// and non-solid layers (water volumes, triggers, UI).
         /// Uses RaycastAll to find all hits, then filters out invalid targets.
         /// </summary>
-        private static float lastRaycastLogTime = 0f;
         private static bool RaycastCrosshair(Ray aimRay, Player player, out RaycastHit hit, out Vector3 targetPoint)
         {
             // Exclude non-solid/invisible layers that should never block aiming
             int layerMask = ~(LayerMask.GetMask("UI", "character_trigger", "viewblock", "WaterVolume", "Water", "smoke"));
-            bool shouldLog = Time.time - lastRaycastLogTime > 2f;
 
             // Get ALL hits along the ray
             RaycastHit[] hits = Physics.RaycastAll(aimRay.origin, aimRay.direction, 1000f, layerMask);
-
-            if (shouldLog)
-            {
-                lastRaycastLogTime = Time.time;
-                ModLogger.Log($"=== RAYCAST DEBUG === {hits.Length} hits from camera");
-                for (int i = 0; i < Mathf.Min(hits.Length, 8); i++)
-                {
-                    var h = hits[i];
-                    string root = h.collider.transform.root?.name ?? "null";
-                    ModLogger.Log($"  Hit[{i}]: dist={h.distance:F1}m obj={h.collider.name} layer={LayerMask.LayerToName(h.collider.gameObject.layer)} root={root}");
-                }
-            }
 
             // Sort by distance (RaycastAll doesn't guarantee order)
             System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
@@ -306,18 +321,12 @@ namespace MegaCrossbows
 
                 hit = hits[i];
                 targetPoint = hit.point;
-
-                if (shouldLog)
-                {
-                    ModLogger.Log($"  SELECTED: dist={hit.distance:F1}m obj={hit.collider.name} layer={LayerMask.LayerToName(hit.collider.gameObject.layer)}");
-                }
                 return true;
             }
 
             // Nothing hit past player
             hit = default(RaycastHit);
             targetPoint = aimRay.origin + aimRay.direction * 500f;
-            if (shouldLog) ModLogger.Log("  SELECTED: nothing hit, using 500m fallback");
             return false;
         }
 
@@ -335,7 +344,6 @@ namespace MegaCrossbows
                 if (hudComponent == null)
                 {
                     hudComponent = __instance.gameObject.AddComponent<CrossbowHUD>();
-                    ModLogger.Log("CrossbowHUD attached");
                 }
             }
 
@@ -347,7 +355,6 @@ namespace MegaCrossbows
                 // Reset audio cache when leaving crossbow
                 fireClipSearched = false;
                 cachedFireClip = null;
-                effectsDiagLogged = false;
                 return;
             }
 
@@ -384,21 +391,31 @@ namespace MegaCrossbows
                     state.isReloading = false;
                     state.magazineAmmo = MegaCrossbowsPlugin.MagazineCapacity.Value;
                     __instance.Message(MessageHud.MessageType.Center, "<color=green>RELOADED</color>");
-                    ModLogger.Log($"Reloaded: {state.magazineAmmo} rounds");
                 }
                 UpdateHUD(__instance, state);
                 return;
             }
 
-            // === AUTO FIRE (Left Mouse Hold) ===
-            if (Input.GetMouseButton(0))
+            // === FIRE ===
+            // Destroy mode (Alt held): semi-auto, one bolt per click
+            // Normal mode: full-auto while held at configured fire rate
+            bool destroyMode = MegaCrossbowsPlugin.DestroyObjects.Value &&
+                Input.GetKey(MegaCrossbowsPlugin.DestroyObjectsKey.Value);
+            bool fireInput = destroyMode ? Input.GetMouseButtonDown(0) : Input.GetMouseButton(0);
+
+            if (fireInput)
             {
                 if (state.magazineAmmo <= 0)
                 {
                     state.isReloading = true;
                     state.reloadStartTime = Time.time;
                     __instance.Message(MessageHud.MessageType.Center, "<color=yellow>RELOADING</color>");
-                    ModLogger.Log("Magazine empty - reloading");
+                }
+                else if (destroyMode)
+                {
+                    // Semi-auto: one shot per click, no rate limiting
+                    state.magazineAmmo--;
+                    FireBolt(__instance, weapon);
                 }
                 else
                 {
@@ -430,18 +447,67 @@ namespace MegaCrossbows
 
         // ---- Zoom ----
 
+        private static void CacheCamFields()
+        {
+            if (camFieldsCached) return;
+            camFieldsCached = true;
+            var gcType = typeof(GameCamera);
+            var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+
+            // Find distance field (could be m_distance, m_dist, etc.)
+            string[] distNames = { "m_distance", "m_dist", "m_cameraDistance", "m_zoomDistance" };
+            string[] minNames = { "m_minDistance", "m_minDist", "m_nearClipDist" };
+            string[] maxNames = { "m_maxDistance", "m_maxDist", "m_farClipDist" };
+
+            foreach (var n in distNames)
+            {
+                camDistField = gcType.GetField(n, flags);
+                if (camDistField != null && camDistField.FieldType == typeof(float)) break;
+                camDistField = null;
+            }
+            foreach (var n in minNames)
+            {
+                camMinDistField = gcType.GetField(n, flags);
+                if (camMinDistField != null && camMinDistField.FieldType == typeof(float)) break;
+                camMinDistField = null;
+            }
+            foreach (var n in maxNames)
+            {
+                camMaxDistField = gcType.GetField(n, flags);
+                if (camMaxDistField != null && camMaxDistField.FieldType == typeof(float)) break;
+                camMaxDistField = null;
+            }
+        }
+
+        private static float GetCamFloat(FieldInfo field, float fallback)
+        {
+            if (field == null || GameCamera.instance == null) return fallback;
+            try { return (float)field.GetValue(GameCamera.instance); } catch { return fallback; }
+        }
+
+        private static void SetCamFloat(FieldInfo field, float value)
+        {
+            if (field == null || GameCamera.instance == null) return;
+            try { field.SetValue(GameCamera.instance, value); } catch { }
+        }
+
         private static void HandleZoom()
         {
             if (Input.GetMouseButton(1))
             {
                 if (!zooming && GameCamera.instance != null)
                 {
+                    CacheCamFields();
+                    // Save current camera state
                     savedFOV = GameCamera.instance.m_fov;
+                    savedDistance = GetCamFloat(camDistField, 4f);
+                    savedMinDistance = GetCamFloat(camMinDistField, 1f);
+                    savedMaxDistance = GetCamFloat(camMaxDistField, 6f);
                     zooming = true;
                     zoomLevel = MegaCrossbowsPlugin.ZoomMin.Value;
-                    ModLogger.Log($"Zoom ON: FOV {savedFOV} -> {savedFOV / zoomLevel}");
                 }
 
+                // Scroll adjusts zoom magnification, not camera distance
                 float scroll = Input.GetAxis("Mouse ScrollWheel");
                 if (Mathf.Abs(scroll) > 0.01f)
                 {
@@ -452,8 +518,14 @@ namespace MegaCrossbows
                     );
                 }
 
+                // Lock camera to first-person scope view every frame
                 if (GameCamera.instance != null)
+                {
                     GameCamera.instance.m_fov = savedFOV / zoomLevel;
+                    SetCamFloat(camDistField, 0f);
+                    SetCamFloat(camMinDistField, 0f);
+                    SetCamFloat(camMaxDistField, 0f);
+                }
             }
             else if (zooming)
             {
@@ -465,8 +537,12 @@ namespace MegaCrossbows
         {
             zooming = false;
             if (GameCamera.instance != null)
+            {
                 GameCamera.instance.m_fov = savedFOV;
-            ModLogger.Log($"Zoom OFF: restored FOV {savedFOV}");
+                SetCamFloat(camDistField, savedDistance);
+                SetCamFloat(camMinDistField, savedMinDistance);
+                SetCamFloat(camMaxDistField, savedMaxDistance);
+            }
         }
 
         // ---- Fire ----
@@ -486,7 +562,6 @@ namespace MegaCrossbows
 
             if (prefab == null)
             {
-                ModLogger.LogError("FireBolt: No projectile prefab found");
                 return;
             }
 
@@ -512,7 +587,6 @@ namespace MegaCrossbows
             if (projectile == null)
             {
                 UnityEngine.Object.Destroy(proj);
-                ModLogger.LogError("FireBolt: No Projectile component on prefab");
                 return;
             }
 
@@ -522,38 +596,38 @@ namespace MegaCrossbows
             Vector3 velocity = aimDir * speed;
 
             // 5. Damage
-            // All damage types are multipliers of the bolt's base pierce damage:
-            //   0 = none, 0.1 = 10% of pierce, 1 = equal to pierce, 10 = 10x pierce
-            //   e.g. black metal bolt (62 pierce): mult 0.1 = 6.2, mult 1 = 62, mult 10 = 620
-            // Stagger: direct multiplier on weapon attack force (0=none, 1=normal, 10=10x)
+            // BaseMultiplier is an overall multiplier applied to ALL damage types.
+            // Individual type multipliers scale off combined weapon+ammo base pierce.
+            //   e.g. black metal bolt (62 pierce) + Arbalest (200 pierce) = 262 base pierce
+            //   with BaseMultiplier=0.5 and Pierce=1: 262 * 1 * 0.5 = 131 final pierce
             HitData hitData = new HitData();
-            HitData.DamageTypes baseDmg = weapon.GetDamage();
-            float basePierce = baseDmg.m_pierce;
+            HitData.DamageTypes weaponDmg = weapon.GetDamage();
+            HitData.DamageTypes ammoDmg = default(HitData.DamageTypes);
+            if (ammoItem != null)
+                ammoDmg = ammoItem.GetDamage();
 
-            // Physical damage
-            hitData.m_damage.m_damage = baseDmg.m_damage * MegaCrossbowsPlugin.DamageMultiplier.Value;
-            hitData.m_damage.m_pierce = basePierce * MegaCrossbowsPlugin.DamagePierce.Value;
-            hitData.m_damage.m_blunt = basePierce * MegaCrossbowsPlugin.DamageBlunt.Value;
-            hitData.m_damage.m_slash = basePierce * MegaCrossbowsPlugin.DamageSlash.Value;
+            // Combined base pierce (weapon + ammo) used for all type scaling
+            float basePierce = weaponDmg.m_pierce + ammoDmg.m_pierce;
+            float overallMult = MegaCrossbowsPlugin.DamageMultiplier.Value;
 
-            // Elemental damage (multiplier of base pierce)
-            // DoT multiplier additionally scales elemental values fed into SE_Burning/SE_Poison
-            // DoT=0: no modification, DoT=1: 1x (same), DoT=10: 10x damage AND 10x duration
-            float dotMult = MegaCrossbowsPlugin.ElementalDoT.Value;
-            float elemDoT = (dotMult > 0f) ? dotMult : 1f;
-            hitData.m_damage.m_fire = basePierce * MegaCrossbowsPlugin.DamageFire.Value * elemDoT;
-            hitData.m_damage.m_frost = basePierce * MegaCrossbowsPlugin.DamageFrost.Value * elemDoT;
-            hitData.m_damage.m_lightning = basePierce * MegaCrossbowsPlugin.DamageLightning.Value * elemDoT;
-            hitData.m_damage.m_poison = basePierce * MegaCrossbowsPlugin.DamagePoison.Value * elemDoT;
-            hitData.m_damage.m_spirit = basePierce * MegaCrossbowsPlugin.DamageSpirit.Value * elemDoT;
+            // Physical damage: basePierce ï¿½ typeMultiplier ï¿½ overallMultiplier
+            hitData.m_damage.m_damage = (weaponDmg.m_damage + ammoDmg.m_damage) * overallMult;
+            hitData.m_damage.m_pierce = basePierce * MegaCrossbowsPlugin.DamagePierce.Value * overallMult;
+            hitData.m_damage.m_blunt = basePierce * MegaCrossbowsPlugin.DamageBlunt.Value * overallMult;
+            hitData.m_damage.m_slash = basePierce * MegaCrossbowsPlugin.DamageSlash.Value * overallMult;
 
-            hitData.m_damage.m_chop = baseDmg.m_chop;
-            hitData.m_damage.m_pickaxe = baseDmg.m_pickaxe;
+            // Elemental damage: basePierce ï¿½ typeMultiplier ï¿½ overallMultiplier
+            hitData.m_damage.m_fire = basePierce * MegaCrossbowsPlugin.DamageFire.Value * overallMult;
+            hitData.m_damage.m_frost = basePierce * MegaCrossbowsPlugin.DamageFrost.Value * overallMult;
+            hitData.m_damage.m_lightning = basePierce * MegaCrossbowsPlugin.DamageLightning.Value * overallMult;
+            hitData.m_damage.m_poison = basePierce * MegaCrossbowsPlugin.DamagePoison.Value * overallMult;
+            hitData.m_damage.m_spirit = basePierce * MegaCrossbowsPlugin.DamageSpirit.Value * overallMult;
+
+            hitData.m_damage.m_chop = weaponDmg.m_chop + ammoDmg.m_chop;
+            hitData.m_damage.m_pickaxe = weaponDmg.m_pickaxe + ammoDmg.m_pickaxe;
             hitData.m_skill = weapon.m_shared.m_skillType;
 
             // Tag bolt for object destruction if modifier key is held
-            // Sets chop/pickaxe to 999999 on HitData - these are reliably stored
-            // in Projectile.m_damage and carried to hit time
             bool destroyMode = MegaCrossbowsPlugin.DestroyObjects.Value &&
                 Input.GetKey(MegaCrossbowsPlugin.DestroyObjectsKey.Value);
             if (destroyMode)
@@ -566,23 +640,6 @@ namespace MegaCrossbows
             float staggerMult = MegaCrossbowsPlugin.Stagger.Value;
             try { hitData.m_pushForce = weapon.m_shared.m_attackForce * staggerMult; } catch { }
             try { hitData.m_staggerMultiplier = staggerMult; } catch { }
-
-            // Diagnostic logging (throttled - once per 2 seconds)
-            if (Time.time - lastDamageDiagTime > 2f)
-            {
-                lastDamageDiagTime = Time.time;
-                ModLogger.Log($"=== BOLT DAMAGE DIAGNOSTIC ===");
-                ModLogger.Log($"  Weapon base: dmg={baseDmg.m_damage:F0} blunt={baseDmg.m_blunt:F0} slash={baseDmg.m_slash:F0} pierce={baseDmg.m_pierce:F0}");
-                ModLogger.Log($"  Weapon base elemental: fire={baseDmg.m_fire:F0} frost={baseDmg.m_frost:F0} light={baseDmg.m_lightning:F0} poison={baseDmg.m_poison:F0} spirit={baseDmg.m_spirit:F0}");
-                ModLogger.Log($"  Base pierce for scaling: {basePierce:F0}");
-                ModLogger.Log($"  Config: mult={MegaCrossbowsPlugin.DamageMultiplier.Value} pierce={MegaCrossbowsPlugin.DamagePierce.Value} blunt={MegaCrossbowsPlugin.DamageBlunt.Value}x slash={MegaCrossbowsPlugin.DamageSlash.Value}x stagger={staggerMult}");
-                ModLogger.Log($"  Config elem: fire={MegaCrossbowsPlugin.DamageFire.Value}x frost={MegaCrossbowsPlugin.DamageFrost.Value}x light={MegaCrossbowsPlugin.DamageLightning.Value}x poison={MegaCrossbowsPlugin.DamagePoison.Value}x spirit={MegaCrossbowsPlugin.DamageSpirit.Value}x DoT={dotMult}x (effective={elemDoT}x)");
-                ModLogger.Log($"  FINAL phys: dmg={hitData.m_damage.m_damage:F1} pierce={hitData.m_damage.m_pierce:F1} blunt={hitData.m_damage.m_blunt:F1} slash={hitData.m_damage.m_slash:F1}");
-                ModLogger.Log($"  FINAL elem: fire={hitData.m_damage.m_fire:F1} frost={hitData.m_damage.m_frost:F1} light={hitData.m_damage.m_lightning:F1} poison={hitData.m_damage.m_poison:F1} spirit={hitData.m_damage.m_spirit:F1}");
-                try { ModLogger.Log($"  FINAL stagger: pushForce={hitData.m_pushForce:F1} staggerMult={hitData.m_staggerMultiplier:F1}"); } catch { }
-                ModLogger.Log($"  DESTROY MODE: {destroyMode} (config={MegaCrossbowsPlugin.DestroyObjects.Value}, key={MegaCrossbowsPlugin.DestroyObjectsKey.Value}, keyHeld={Input.GetKey(MegaCrossbowsPlugin.DestroyObjectsKey.Value)})");
-                ModLogger.Log($"  Chop={hitData.m_damage.m_chop:F0} Pickaxe={hitData.m_damage.m_pickaxe:F0}");
-            }
 
             // 6. Setup projectile (VERIFIED: 6-parameter overload)
             var itemForSetup = ammoItem ?? weapon;
@@ -599,10 +656,13 @@ namespace MegaCrossbows
                 catch { }
             }
 
-            // 7. AOE
-            try { if (MegaCrossbowsPlugin.AoeRadius.Value > 0) projectile.m_aoe = MegaCrossbowsPlugin.AoeRadius.Value; } catch { }
+            // 7. AOE ï¿½ we handle AOE ourselves in PatchCrossbowAOE (Character.Damage postfix)
+            // so that splash emanates from the actual IMPACT POINT, not the bolt's transform.position.
+            // Valheim's built-in m_aoe uses transform.position which at 940 m/s can be far past the hit.
+            // Destroy mode AOE is handled separately by DestroyMineRock5Areas.
+            try { projectile.m_aoe = 0f; } catch { }
 
-            // 7b. Extend ZDO range — Valheim's zone system destroys network objects
+            // 7b. Extend ZDO range ï¿½ Valheim's zone system destroys network objects
             // beyond ~64-100m from the player. m_distant=true extends sync range,
             // m_persistent keeps it from being cleaned up, and setting the ZDO type
             // to Prioritized gives it maximum active range. Applies to ALL bolts.
@@ -621,24 +681,6 @@ namespace MegaCrossbows
                 }
             }
             catch { }
-
-            // 8. TTL - controls bolt travel distance
-            try
-            {
-                float baseTTL = Mathf.Max(projectile.m_ttl, 60f);
-                projectile.m_ttl = baseTTL * MegaCrossbowsPlugin.Distance.Value;
-            }
-            catch { }
-
-            // Projectile stats diagnostic (throttled with damage diag)
-            if (Time.time - lastDamageDiagTime < 0.1f)
-            {
-                ModLogger.Log($"=== PROJECTILE STATS ===");
-                ModLogger.Log($"  Base m_projectileVel={attack.m_projectileVel:F0} VelocityConfig={MegaCrossbowsPlugin.Velocity.Value} FinalSpeed={speed:F0} m/s");
-                ModLogger.Log($"  TTL={projectile.m_ttl:F1}s (Distance config={MegaCrossbowsPlugin.Distance.Value}x)");
-                ModLogger.Log($"  Theoretical max range={speed * projectile.m_ttl:F0}m");
-                ModLogger.Log($"  AOE radius={projectile.m_aoe:F1} NoGravity={MegaCrossbowsPlugin.NoGravity.Value}");
-            }
 
             // 9. Physics - gravity and collision detection
             if (MegaCrossbowsPlugin.NoGravity.Value)
@@ -700,18 +742,11 @@ namespace MegaCrossbows
                         zanim.SetTrigger(attack.m_attackAnimation);
                 }
             }
-            catch (Exception ex) { ModLogger.LogError($"Animation error: {ex.Message}"); }
+            catch { }
 
             // 11. Sound effect - play firing sound every shot matching fire rate
             try
             {
-                // One-time: log all available effect fields for diagnostics
-                if (!effectsDiagLogged)
-                {
-                    effectsDiagLogged = true;
-                    LogWeaponEffects(weapon, attack, ammoItem);
-                }
-
                 bool soundPlayed = false;
 
                 // --- Attempt 1: EffectList.Create (Valheim's native effect system) ---
@@ -733,10 +768,6 @@ namespace MegaCrossbows
                     {
                         fireClipSearched = true;
                         cachedFireClip = FindFireClip(attack, weapon, ammoItem);
-                        if (cachedFireClip != null)
-                            ModLogger.Log($"Cached fire AudioClip: {cachedFireClip.name}");
-                        else
-                            ModLogger.LogWarning("No AudioClip found in any effect source");
                     }
 
                     if (cachedFireClip != null)
@@ -751,7 +782,6 @@ namespace MegaCrossbows
                                 cachedAudioSource.spatialBlend = 1f;
                                 cachedAudioSource.maxDistance = 50f;
                                 cachedAudioSource.rolloffMode = AudioRolloffMode.Linear;
-                                ModLogger.Log("Created AudioSource on player for firing sounds");
                             }
                         }
                         cachedAudioSource.PlayOneShot(cachedFireClip);
@@ -765,10 +795,8 @@ namespace MegaCrossbows
                     soundPlayed = TryInstantiateEffectPrefabs(attack, spawnPos, aimDir);
                 }
 
-                if (!soundPlayed)
-                    ModLogger.LogWarning("No firing sound could be played");
             }
-            catch (Exception ex) { ModLogger.LogError($"Sound error: {ex.Message}"); }
+            catch { }
         }
 
         // ---- Sound Helpers ----
@@ -788,7 +816,6 @@ namespace MegaCrossbows
                 var created = el.Create(pos, Quaternion.LookRotation(dir), parent, 1f);
                 if (created != null && created.Length > 0)
                 {
-                    ModLogger.Log($"Sound played from {source.GetType().Name}.{fieldName} ({created.Length} objects)");
                     return true;
                 }
                 return false;
@@ -833,7 +860,6 @@ namespace MegaCrossbows
                                         var clips = clipsField.GetValue(zsfx) as AudioClip[];
                                         if (clips != null && clips.Length > 0 && clips[0] != null)
                                         {
-                                            ModLogger.Log($"Found ZSFX clip in {source.GetType().Name}.{f.Name}: {clips[0].name}");
                                             return clips[0];
                                         }
                                     }
@@ -847,7 +873,6 @@ namespace MegaCrossbows
                                 var audioSrc = ep.m_prefab.GetComponentInChildren<AudioSource>();
                                 if (audioSrc != null && audioSrc.clip != null)
                                 {
-                                    ModLogger.Log($"Found AudioSource clip in {source.GetType().Name}.{f.Name}: {audioSrc.clip.name}");
                                     return audioSrc.clip;
                                 }
                             }
@@ -879,7 +904,6 @@ namespace MegaCrossbows
                         if (go != null)
                         {
                             UnityEngine.Object.Destroy(go, 3f);
-                            ModLogger.Log($"Sound: instantiated prefab {ep.m_prefab.name}");
                             return true;
                         }
                     }
@@ -887,76 +911,6 @@ namespace MegaCrossbows
             }
             catch { }
             return false;
-        }
-
-        private static void LogWeaponEffects(ItemDrop.ItemData weapon, Attack attack, ItemDrop.ItemData ammoItem)
-        {
-            ModLogger.Log("=== WEAPON EFFECTS DIAGNOSTIC ===");
-            ModLogger.Log($"Weapon: {weapon.m_shared.m_name}");
-            try
-            {
-                foreach (var f in typeof(Attack).GetFields(BindingFlags.Public | BindingFlags.Instance))
-                {
-                    if (f.FieldType != typeof(EffectList)) continue;
-                    var el = f.GetValue(attack) as EffectList;
-                    int cnt = el?.m_effectPrefabs?.Length ?? 0;
-                    if (cnt > 0)
-                    {
-                        string names = "";
-                        foreach (var ep in el.m_effectPrefabs)
-                            names += (ep.m_prefab?.name ?? "null") + " ";
-                        ModLogger.Log($"  Attack.{f.Name}: {cnt} [{names.Trim()}]");
-                    }
-                    else
-                    {
-                        ModLogger.Log($"  Attack.{f.Name}: EMPTY");
-                    }
-                }
-            }
-            catch (Exception ex) { ModLogger.Log($"  Attack scan error: {ex.Message}"); }
-            try
-            {
-                foreach (var f in typeof(ItemDrop.ItemData.SharedData).GetFields(BindingFlags.Public | BindingFlags.Instance))
-                {
-                    if (f.FieldType != typeof(EffectList)) continue;
-                    var el = f.GetValue(weapon.m_shared) as EffectList;
-                    int cnt = el?.m_effectPrefabs?.Length ?? 0;
-                    if (cnt > 0)
-                    {
-                        string names = "";
-                        foreach (var ep in el.m_effectPrefabs)
-                            names += (ep.m_prefab?.name ?? "null") + " ";
-                        ModLogger.Log($"  SharedData.{f.Name}: {cnt} [{names.Trim()}]");
-                    }
-                }
-            }
-            catch (Exception ex) { ModLogger.Log($"  SharedData scan error: {ex.Message}"); }
-            if (ammoItem != null)
-            {
-                ModLogger.Log($"Ammo: {ammoItem.m_shared.m_name}");
-                try
-                {
-                    var ammoAtk = ammoItem.m_shared.m_attack;
-                    if (ammoAtk != null)
-                    {
-                        foreach (var f in typeof(Attack).GetFields(BindingFlags.Public | BindingFlags.Instance))
-                        {
-                            if (f.FieldType != typeof(EffectList)) continue;
-                            var el = f.GetValue(ammoAtk) as EffectList;
-                            int cnt = el?.m_effectPrefabs?.Length ?? 0;
-                            if (cnt > 0)
-                            {
-                                string names = "";
-                                foreach (var ep in el.m_effectPrefabs)
-                                    names += (ep.m_prefab?.name ?? "null") + " ";
-                                ModLogger.Log($"  AmmoAttack.{f.Name}: {cnt} [{names.Trim()}]");
-                            }
-                        }
-                    }
-                }
-                catch { }
-            }
-            ModLogger.Log("=== END EFFECTS DIAGNOSTIC ===");
         }
 
         // ---- HUD ----
@@ -983,7 +937,6 @@ namespace MegaCrossbows
             }
 
             // Distance: raycast from CAMERA (crosshair), measure from player to hit point.
-            // Uses the SAME shared raycast as FireBolt so the numbers always match.
             float range = -1f;
             Camera cam;
             Ray aimRay;
@@ -1020,8 +973,11 @@ namespace MegaCrossbows
     [HarmonyPatch(typeof(WearNTear), "Damage")]
     public static class PatchBuildingDamage
     {
-        private static bool buildingDiagLogged = false;
         private static bool isApplyingSpread = false;
+
+        // Destroy mode: save/restore damage modifiers to bypass fortress immunity
+        private static bool destroyModeActive = false;
+        private static object savedModifierData;
 
         public static void Prefix(WearNTear __instance, HitData hit)
         {
@@ -1029,6 +985,18 @@ namespace MegaCrossbows
             {
                 if (!MegaCrossbowsPlugin.ModEnabled.Value) return;
                 if (hit == null) return;
+
+                // --- Destroy mode: bypass damage modifiers on fortress/building pieces ---
+                // Ashlands fortress pieces have damage modifiers with Immune/VeryResistant
+                // entries that block all damage. Clear them so destroy-tagged bolts work.
+                if (DestroyObjectsHelper.IsDestroyTagged(hit))
+                {
+                    destroyModeActive = true;
+                    savedModifierData = DestroyObjectsHelper.ClearDamageModifiers(__instance);
+                    DestroyObjectsHelper.TryApplyDestroyDamage(hit);
+                    return;
+                }
+
                 if (hit.m_skill != Skills.SkillType.Crossbows) return;
 
                 // --- Building damage multiplier ---
@@ -1057,7 +1025,7 @@ namespace MegaCrossbows
                     hit.m_damage.m_fire = Mathf.Max(hit.m_damage.m_fire, fireDmg);
                 }
             }
-            catch (Exception ex) { ModLogger.LogError($"BuildingDamage Prefix: {ex.Message}"); }
+            catch { }
         }
 
         public static void Postfix(WearNTear __instance, HitData hit)
@@ -1066,18 +1034,23 @@ namespace MegaCrossbows
             {
                 if (!MegaCrossbowsPlugin.ModEnabled.Value) return;
                 if (hit == null) return;
+
+                // --- Restore modifiers and force-destroy after destroy mode ---
+                if (destroyModeActive)
+                {
+                    destroyModeActive = false;
+                    DestroyObjectsHelper.RestoreDamageModifiers(__instance, savedModifierData);
+                    savedModifierData = null;
+                    DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "WearNTear");
+                    DestroyObjectsHelper.TryAOEDestroy(hit);
+                    return;
+                }
+
                 if (hit.m_skill != Skills.SkillType.Crossbows) return;
                 if (isApplyingSpread) return;
 
                 float fireMult = MegaCrossbowsPlugin.BuildingFireDamage.Value;
                 if (fireMult <= 0f) return;
-
-                // One-time: log WearNTear fire-related fields for diagnostics
-                if (!buildingDiagLogged)
-                {
-                    buildingDiagLogged = true;
-                    LogBuildingFireFields(__instance);
-                }
 
                 // Try to trigger/extend Ashlands fire behavior via reflection
                 TryApplyAshlandsFire(__instance);
@@ -1089,7 +1062,7 @@ namespace MegaCrossbows
                     ApplyFireSpread(__instance, spreadRadius, fireMult);
                 }
             }
-            catch (Exception ex) { ModLogger.LogError($"BuildingDamage Postfix: {ex.Message}"); }
+            catch { }
         }
 
         /// <summary>
@@ -1120,7 +1093,6 @@ namespace MegaCrossbows
                                 method.Invoke(wnt, null);
                             else if (parms.Length == 1 && parms[0].ParameterType == typeof(bool))
                                 method.Invoke(wnt, new object[] { true });
-                            ModLogger.Log($"Called WearNTear.{methodName}()");
                             break;
                         }
                     }
@@ -1138,7 +1110,6 @@ namespace MegaCrossbows
                         {
                             float current = (float)field.GetValue(wnt);
                             field.SetValue(wnt, current * durationMult);
-                            ModLogger.Log($"Set WearNTear.{fieldName}: {current} -> {current * durationMult}");
                             break;
                         }
                     }
@@ -1180,72 +1151,92 @@ namespace MegaCrossbows
                     // Cap spread per shot to avoid performance issues
                     if (spreadCount >= 10) break;
                 }
-
-                if (spreadCount > 0)
-                    ModLogger.Log($"Fire spread to {spreadCount} nearby pieces (radius {radius:F1}m)");
             }
-            catch (Exception ex) { ModLogger.LogError($"FireSpread: {ex.Message}"); }
+            catch { }
             finally
             {
                 isApplyingSpread = false;
             }
         }
+    }
 
-        /// <summary>
-        /// One-time diagnostic: log all fire-related fields on WearNTear.
-        /// </summary>
-        private static void LogBuildingFireFields(WearNTear wnt)
+    // =========================================================================
+    // CROSSBOW AOE - Apply splash damage from the bolt's IMPACT POINT.
+    // Valheim's built-in Projectile.m_aoe applies AOE from the bolt's
+    // transform.position, which at high velocities (940 m/s = ~15m/frame)
+    // is far past the actual collision point. This patch uses hit.m_point
+    // (the real impact location) as the AOE center instead.
+    // =========================================================================
+    [HarmonyPatch(typeof(Character), "Damage")]
+    public static class PatchCrossbowAOE
+    {
+        private static bool isApplyingAOE = false;
+
+        public static void Postfix(Character __instance, HitData hit)
         {
-            ModLogger.Log("=== WEARNTEAR FIRE DIAGNOSTIC ===");
             try
             {
-                var fields = typeof(WearNTear).GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                foreach (var f in fields)
-                {
-                    string name = f.Name.ToLower();
-                    if (name.Contains("fire") || name.Contains("burn") || name.Contains("ash") || name.Contains("flame") || name.Contains("ignite"))
-                    {
-                        try
-                        {
-                            object val = f.GetValue(wnt);
-                            ModLogger.Log($"  {f.Name} ({f.FieldType.Name}): {val}");
-                        }
-                        catch
-                        {
-                            ModLogger.Log($"  {f.Name} ({f.FieldType.Name}): <read error>");
-                        }
-                    }
-                }
+                if (isApplyingAOE) return;
+                if (!MegaCrossbowsPlugin.ModEnabled.Value) return;
+                if (hit == null) return;
+                if (hit.m_skill != Skills.SkillType.Crossbows) return;
 
-                var methods = typeof(WearNTear).GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                foreach (var m in methods)
+                float radius = MegaCrossbowsPlugin.AoeRadius.Value;
+                if (radius <= 0f) return;
+
+                Vector3 impactPoint = hit.m_point;
+                if (impactPoint == Vector3.zero) return;
+
+                isApplyingAOE = true;
+
+                // OverlapSphere at the IMPACT POINT, not the bolt's position
+                int layerMask = ~(LayerMask.GetMask("UI", "character_trigger", "viewblock"));
+                Collider[] nearby = Physics.OverlapSphere(impactPoint, radius, layerMask);
+
+                Character attacker = hit.GetAttacker();
+                HashSet<int> alreadyHit = new HashSet<int>();
+                alreadyHit.Add(__instance.GetInstanceID()); // skip the direct-hit target
+                if (attacker != null) alreadyHit.Add(attacker.GetInstanceID()); // skip the player
+
+                foreach (var col in nearby)
                 {
-                    string name = m.Name.ToLower();
-                    if (name.Contains("fire") || name.Contains("burn") || name.Contains("ash") || name.Contains("flame") || name.Contains("ignite"))
-                    {
-                        ModLogger.Log($"  Method: {m.Name}({string.Join(", ", System.Array.ConvertAll(m.GetParameters(), p => p.ParameterType.Name))})");
-                    }
+                    if (col == null) continue;
+                    var character = col.GetComponentInParent<Character>();
+                    if (character == null) continue;
+                    if (!alreadyHit.Add(character.GetInstanceID())) continue;
+
+                    // Build splash damage from the original hit
+                    HitData splashHit = new HitData();
+                    splashHit.m_damage = hit.m_damage;
+                    splashHit.m_point = character.GetCenterPoint();
+                    splashHit.m_dir = (character.transform.position - impactPoint).normalized;
+                    splashHit.m_skill = hit.m_skill;
+                    try { splashHit.m_pushForce = hit.m_pushForce; } catch { }
+                    try { splashHit.m_staggerMultiplier = hit.m_staggerMultiplier; } catch { }
+                    try { splashHit.SetAttacker(attacker); } catch { }
+
+                    character.Damage(splashHit);
                 }
             }
-            catch (Exception ex) { ModLogger.Log($"  Scan error: {ex.Message}"); }
-            ModLogger.Log("=== END WEARNTEAR DIAGNOSTIC ===");
+            catch { }
+            finally
+            {
+                isApplyingAOE = false;
+            }
         }
     }
 
     // =========================================================================
     // ELEMENTAL DoT - Patch Character.Damage to scale status effect duration
-    // when a crossbow bolt hits. This runs AFTER the full damage pipeline
-    // (including AddFireDamage/AddPoisonDamage) so TTL and damage are reliable.
+    // when a crossbow bolt hits. This is the SOLE source of DoT scaling.
+    // The elemental damage on HitData uses only the config multiplier (no DoT).
+    // This patch scales the resulting status effects (TTL + damage pool).
     // DoT=0: no modification (default Valheim behavior)
     // DoT=1+: multiply burn/poison duration AND per-tick damage
-    // The elemental damage on HitData is already scaled by DoT in FireBolt,
-    // so SE_Burning's damage pool is pre-scaled. This patch handles TTL.
     // =========================================================================
     [HarmonyPatch(typeof(Character), "Damage")]
     public static class PatchCharacterDamageDoT
     {
-        private static bool diagLogged = false;
-
         private static bool IsElementalEffect(StatusEffect se)
         {
             if (se == null) return false;
@@ -1281,29 +1272,6 @@ namespace MegaCrossbows
                 foreach (var se in effects)
                 {
                     if (!IsElementalEffect(se)) continue;
-
-                    // One-time diagnostic: log status effect fields
-                    if (!diagLogged)
-                    {
-                        diagLogged = true;
-                        ModLogger.Log($"=== STATUS EFFECT DoT DIAGNOSTIC ===");
-                        ModLogger.Log($"  Effect: {se.m_name} type={se.GetType().Name} TTL={se.m_ttl:F1}");
-                        try
-                        {
-                            foreach (var f in se.GetType().GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-                            {
-                                string fname = f.Name.ToLower();
-                                if (fname.Contains("ttl") || fname.Contains("time") || fname.Contains("duration") ||
-                                    fname.Contains("damage") || fname.Contains("tick") || fname.Contains("interval"))
-                                {
-                                    try { ModLogger.Log($"  {f.Name} ({f.FieldType.Name}): {f.GetValue(se)}"); }
-                                    catch { ModLogger.Log($"  {f.Name} ({f.FieldType.Name}): <read error>"); }
-                                }
-                            }
-                        }
-                        catch { }
-                        ModLogger.Log($"=== END STATUS EFFECT DIAGNOSTIC ===");
-                    }
 
                     // Scale TTL (duration)
                     float originalTTL = se.m_ttl;
@@ -1342,11 +1310,9 @@ namespace MegaCrossbows
                         }
                         catch { }
                     }
-
-                    ModLogger.Log($"DoT: {se.m_name} TTL {originalTTL:F1}s -> {se.m_ttl:F1}s ({dotMult}x)");
                 }
             }
-            catch (Exception ex) { ModLogger.LogError($"CharacterDamage DoT: {ex.Message}"); }
+            catch { }
         }
     }
 
@@ -1370,13 +1336,162 @@ namespace MegaCrossbows
                     if (itemDrop == null) continue;
                     if (CrossbowHelper.IsBolt(itemDrop.m_itemData))
                     {
-                        int oldStack = itemDrop.m_itemData.m_shared.m_maxStackSize;
                         itemDrop.m_itemData.m_shared.m_maxStackSize = 1000;
-                        ModLogger.Log($"Bolt stack: {itemDrop.m_itemData.m_shared.m_name} {oldStack} -> 1000");
                     }
                 }
             }
-            catch (Exception ex) { ModLogger.LogError($"BoltStackSize: {ex.Message}"); }
+            catch { }
+        }
+    }
+
+    // =========================================================================
+    // DEFERRED MINE ROCK DESTRUCTION
+    // Calling rock.Damage() from within a Harmony Postfix doesn't work ï¿½
+    // Valheim's RPCs get lost in the re-entrant call context. This component
+    // waits 2 frames then calls Damage() on each sub-area from a clean stack,
+    // so RPCs process normally and drops/effects spawn as expected.
+    // Works for both MineRock5 (large deposits) and MineRock (small deposits).
+    // =========================================================================
+    public class DeferredMineRockDestroy : MonoBehaviour
+    {
+        private float aoeRadius;
+        private Vector3 impactPoint;
+        private int frameDelay = 2;
+
+        public void Setup(float radius, Vector3 impact)
+        {
+            aoeRadius = radius;
+            impactPoint = impact;
+        }
+
+        void Update()
+        {
+            if (frameDelay-- > 0) return;
+
+            try
+            {
+                DestroyObjectsHelper.isDestroyingAreas = true;
+
+                // --- MineRock5 (large multi-area deposits: copper, silver, etc.) ---
+                var rock5 = GetComponent<MineRock5>();
+                if (rock5 != null)
+                {
+                    DestroyRock5(rock5);
+                    Destroy(this);
+                    return;
+                }
+
+                // --- MineRock (small single deposits: tin, obsidian, etc.) ---
+                var rock = GetComponent<MineRock>();
+                if (rock != null)
+                {
+                    HitData hit = CreateDestroyHit(rock.transform.position);
+                    DestroyObjectsHelper.isDeferredDamage = true;
+                    rock.Damage(hit);
+                    DestroyObjectsHelper.isDeferredDamage = false;
+                    Destroy(this);
+                    return;
+                }
+            }
+            catch { }
+            finally
+            {
+                DestroyObjectsHelper.isDestroyingAreas = false;
+            }
+
+            Destroy(this);
+        }
+
+        private void DestroyRock5(MineRock5 rock)
+        {
+            // Claim ownership so we have authority
+            try
+            {
+                var nview = rock.GetComponent<ZNetView>();
+                if (nview != null && nview.IsValid() && !nview.IsOwner())
+                    nview.ClaimOwnership();
+            }
+            catch { }
+
+            // Find DamageArea(int hitAreaIndex, HitData hit) ï¿½ the internal method
+            // that directly damages a specific area by index, synchronously.
+            // Calling rock.Damage() sends RPCs that never resolve; DamageArea bypasses that.
+            var damageAreaMethod = typeof(MineRock5).GetMethod("DamageArea",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+            if (damageAreaMethod == null)
+            {
+                DestroyObjectsHelper.ForceDestroyObject(rock, "MineRock5(no-DamageArea)");
+                return;
+            }
+
+            // Access m_hitAreas to find each sub-area's collider
+            var hitAreasField = typeof(MineRock5).GetField("m_hitAreas",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+            if (hitAreasField == null)
+            {
+                DestroyObjectsHelper.ForceDestroyObject(rock, "MineRock5(deferred-fallback)");
+                return;
+            }
+
+            var hitAreas = hitAreasField.GetValue(rock) as System.Collections.IList;
+            if (hitAreas == null || hitAreas.Count == 0)
+            {
+                DestroyObjectsHelper.ForceDestroyObject(rock, "MineRock5(deferred-empty)");
+                return;
+            }
+
+            Type hitAreaType = hitAreas[0].GetType();
+            var colField = hitAreaType.GetField("m_collider",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+            for (int i = 0; i < hitAreas.Count; i++)
+            {
+                var area = hitAreas[i];
+                if (area == null) continue;
+
+                Collider col = null;
+                if (colField != null)
+                    col = colField.GetValue(area) as Collider;
+
+                if (col == null || !col.enabled) continue;
+
+                if (aoeRadius <= 1f)
+                {
+                    float dist = Vector3.Distance(impactPoint, col.bounds.center);
+                    if (dist > aoeRadius) continue;
+                }
+
+                // Call DamageArea(index, hit) directly ï¿½ synchronous, no RPCs
+                HitData areaHit = CreateDestroyHit(col.bounds.center);
+                try
+                {
+                    damageAreaMethod.Invoke(rock, new object[] { i, areaHit });
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static HitData CreateDestroyHit(Vector3 point)
+        {
+            HitData hit = new HitData();
+            hit.m_point = point;
+            hit.m_damage.m_damage = 999999f;
+            hit.m_damage.m_blunt = 999999f;
+            hit.m_damage.m_slash = 999999f;
+            hit.m_damage.m_pierce = 999999f;
+            hit.m_damage.m_chop = 999999f;
+            hit.m_damage.m_pickaxe = 999999f;
+            hit.m_damage.m_fire = 999999f;
+            hit.m_damage.m_frost = 999999f;
+            hit.m_damage.m_lightning = 999999f;
+            hit.m_damage.m_poison = 999999f;
+            hit.m_damage.m_spirit = 999999f;
+            hit.m_toolTier = 9999;
+            return hit;
         }
     }
 
@@ -1392,7 +1507,61 @@ namespace MegaCrossbows
     public static class DestroyObjectsHelper
     {
         private static bool isApplyingAOE = false;
-        private static float lastDestroyLogTime = 0f;
+        internal static bool isDestroyingAreas = false;
+        internal static bool isDeferredDamage = false;
+
+        // Throttle: prevent DestroyMineRock5Areas from running multiple times on the same rock
+        private static int lastProcessedRockId = 0;
+        private static float lastProcessedRockTime = 0f;
+
+        // Cached reflection fields for damage modifiers
+        private static readonly string[] ModifierFieldNames = { "m_damageModifiers", "m_damages", "m_damageModifier" };
+
+        /// <summary>
+        /// Clears damage modifier list on any destructible via reflection.
+        /// Ashlands fortress pieces use these to set Immune/VeryResistant on damage types.
+        /// Returns opaque saved state for RestoreDamageModifiers(), or null if no modifiers found.
+        /// </summary>
+        public static object ClearDamageModifiers(Component target)
+        {
+            if (target == null) return null;
+            try
+            {
+                foreach (var fname in ModifierFieldNames)
+                {
+                    var field = target.GetType().GetField(fname, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (field == null) continue;
+                    var val = field.GetValue(target);
+                    if (val is System.Collections.IList list && list.Count > 0)
+                    {
+                        var saved = new object[list.Count];
+                        list.CopyTo(saved, 0);
+                        list.Clear();
+                        return new KeyValuePair<FieldInfo, object[]>(field, saved);
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>
+        /// Restores damage modifiers previously saved by ClearDamageModifiers.
+        /// </summary>
+        public static void RestoreDamageModifiers(Component target, object savedData)
+        {
+            if (savedData == null || target == null) return;
+            try
+            {
+                var pair = (KeyValuePair<FieldInfo, object[]>)savedData;
+                var list = pair.Key.GetValue(target) as System.Collections.IList;
+                if (list != null)
+                {
+                    foreach (var item in pair.Value) list.Add(item);
+                }
+            }
+            catch { }
+        }
 
         /// <summary>
         /// Detects destroy-tagged bolts by their massive chop/pickaxe damage values
@@ -1405,25 +1574,10 @@ namespace MegaCrossbows
             if (!MegaCrossbowsPlugin.DestroyObjects.Value) return false;
             if (hit == null) return false;
 
-            // Log every hit's chop/pickaxe values for diagnosis (throttled)
-            bool shouldLog = Time.time - lastDestroyLogTime > 1f;
-            if (shouldLog)
-            {
-                lastDestroyLogTime = Time.time;
-                ModLogger.Log($"=== DESTROY HIT CHECK === chop={hit.m_damage.m_chop:F0} pickaxe={hit.m_damage.m_pickaxe:F0} point={hit.m_point} isAOE={isApplyingAOE}");
-            }
-
             // Detect destroy-tagged bolts by their chop/pickaxe values
             // (these are reliably preserved in Projectile.m_damage)
             if (hit.m_damage.m_chop < 999000f && hit.m_damage.m_pickaxe < 999000f)
-            {
-                if (shouldLog)
-                    ModLogger.Log($"  SKIPPED: chop/pickaxe below 999000 threshold");
                 return false;
-            }
-
-            if (shouldLog)
-                ModLogger.Log($"  APPLYING destroy damage (all types -> 999999, toolTier -> 9999)");
 
             hit.m_damage.m_damage = 999999f;
             hit.m_damage.m_blunt = 999999f;
@@ -1452,11 +1606,15 @@ namespace MegaCrossbows
         /// <summary>
         /// Force-destroys an object that survived our 999999 damage due to immunity/resistance.
         /// Bypasses all damage checks by directly destroying via ZNetView or setting health to 0.
+        /// Skips MineRock5/MineRock ï¿½ these use DeferredMineRockDestroy for proper drops.
         /// </summary>
         public static void ForceDestroyIfNeeded(Component target, HitData hit, string typeName)
         {
             if (!IsDestroyTagged(hit)) return;
             if (target == null || target.gameObject == null) return;
+
+            // MineRock5/MineRock use deferred destruction so drops spawn properly
+            if (target is MineRock5 || target is MineRock) return;
 
             try
             {
@@ -1468,7 +1626,6 @@ namespace MegaCrossbows
                     if (hp > 0)
                     {
                         healthField.SetValue(target, 0f);
-                        ModLogger.Log($"Force-destroy: Set {typeName}.m_health from {hp:F0} to 0");
                     }
                 }
             }
@@ -1487,10 +1644,9 @@ namespace MegaCrossbows
                         nview.ClaimOwnership();
                     }
                     nview.Destroy();
-                    ModLogger.Log($"Force-destroy: ZNetView.Destroy() on {typeName} ({target.gameObject.name})");
                 }
             }
-            catch (Exception ex) { ModLogger.LogError($"Force-destroy {typeName}: {ex.Message}"); }
+            catch { }
         }
 
         /// <summary>
@@ -1516,12 +1672,86 @@ namespace MegaCrossbows
         }
 
         /// <summary>
+        /// Destroys a MineRock5 object by deferring per-area Damage() calls to
+        /// the next frame. Calling rock.Damage() from within a Harmony Postfix
+        /// does NOT work ï¿½ Valheim's RPCs get lost in the re-entrant call context.
+        /// Deferring to the next frame runs the calls on a clean stack where
+        /// RPCs process normally, so drops/effects spawn as expected.
+        /// </summary>
+        public static void DestroyMineRock5Areas(MineRock5 rock, HitData hit, Vector3 impactPoint)
+        {
+            if (isDestroyingAreas) return;
+            if (!IsDestroyTagged(hit)) return;
+            if (rock == null) return;
+
+            // Throttle: only process each rock once per second
+            int rockId = rock.GetInstanceID();
+            if (rockId == lastProcessedRockId && Time.time - lastProcessedRockTime < 1f)
+                return;
+            lastProcessedRockId = rockId;
+            lastProcessedRockTime = Time.time;
+
+            float radius = MegaCrossbowsPlugin.AoeRadius.Value;
+            if (radius <= 0f) radius = 1f;
+
+            if (impactPoint == Vector3.zero) impactPoint = hit.m_point;
+            if (impactPoint == Vector3.zero) return;
+
+
+            // Attach a deferred destruction component ï¿½ it will damage all areas
+            // on the next frame, outside the Harmony Postfix stack
+            if (rock.GetComponent<DeferredMineRockDestroy>() == null)
+            {
+                var deferred = rock.gameObject.AddComponent<DeferredMineRockDestroy>();
+                deferred.Setup(radius, impactPoint);
+            }
+        }
+
+        /// <summary>
+        /// Directly destroys any MonoBehaviour's GameObject via ZNetView.
+        /// Works for MineRock5, MineRock, TreeBase, or any networked object.
+        /// Bypasses Damage() entirely ï¿½ no RPCs, no Harmony recursion issues.
+        /// </summary>
+        public static void ForceDestroyObject(Component target, string typeName)
+        {
+            if (target == null || target.gameObject == null) return;
+            try
+            {
+                var nview = target.GetComponent<ZNetView>();
+                if (nview == null) nview = target.GetComponentInParent<ZNetView>();
+                if (nview != null && nview.IsValid())
+                {
+                    if (!nview.IsOwner())
+                        nview.ClaimOwnership();
+                    nview.Destroy();
+                }
+                else
+                {
+                    UnityEngine.Object.Destroy(target.gameObject);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
         /// Destroys all resource objects within the AOE radius around the hit point.
         /// Uses the same radius as the configured AOE for elemental/combat damage.
         /// </summary>
         public static void TryAOEDestroy(HitData hit)
         {
+            TryAOEDestroy(hit, Vector3.zero);
+        }
+
+        /// <summary>
+        /// Overload: use an explicit impact point instead of hit.m_point.
+        /// Some Damage() methods (e.g. MineRock5) modify hit.m_point to the
+        /// matched sub-area center, so callers should pass the original bolt
+        /// impact position saved in their Prefix.
+        /// </summary>
+        public static void TryAOEDestroy(HitData hit, Vector3 overrideImpactPoint)
+        {
             if (isApplyingAOE) return;
+            if (isDestroyingAreas) return; // don't AOE blast while fracturing sub-areas
             if (!MegaCrossbowsPlugin.ModEnabled.Value) return;
             if (!MegaCrossbowsPlugin.DestroyObjects.Value) return;
             if (hit == null) return;
@@ -1529,26 +1759,22 @@ namespace MegaCrossbows
 
             float radius = MegaCrossbowsPlugin.AoeRadius.Value;
             if (radius <= 0f)
-            {
-                ModLogger.Log($"AOE Destroy: SKIPPED - radius={radius:F1} (disabled)");
                 return;
-            }
 
-            Vector3 hitPoint = hit.m_point;
+            // Use explicit impact point if provided, otherwise fall back to hit.m_point
+            Vector3 hitPoint = (overrideImpactPoint != Vector3.zero) ? overrideImpactPoint : hit.m_point;
             if (hitPoint == Vector3.zero)
-            {
-                ModLogger.Log($"AOE Destroy: SKIPPED - hit.m_point is Vector3.zero");
                 return;
-            }
-
-            ModLogger.Log($"AOE Destroy: scanning radius={radius:F1}m at point={hitPoint}");
 
             try
             {
                 isApplyingAOE = true;
-                int destroyCount = 0;
 
                 Collider[] nearby = Physics.OverlapSphere(hitPoint, radius);
+                // Track root objects already processed to avoid hitting the same
+                // MineRock5/TreeBase/etc. multiple times (they have many colliders)
+                HashSet<int> processedRoots = new HashSet<int>();
+
                 foreach (var col in nearby)
                 {
                     if (col == null) continue;
@@ -1557,43 +1783,107 @@ namespace MegaCrossbows
 
                     HitData aoeHit = CreateDestroyHitData(go.transform.position);
 
-                    // Try each destructible type — damage first, then force-destroy if survived
+                    // --- MineRock5: defer destruction to next frame so RPCs work and drops spawn ---
+                    try
+                    {
+                        var rock5 = go.GetComponentInParent<MineRock5>();
+                        if (rock5 != null)
+                        {
+                            if (processedRoots.Add(rock5.GetInstanceID()))
+                            {
+                                if (rock5.GetComponent<DeferredMineRockDestroy>() == null)
+                                {
+                                    var deferred = rock5.gameObject.AddComponent<DeferredMineRockDestroy>();
+                                    deferred.Setup(9999f, hitPoint); // 9999 = destroy all areas
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                    catch { }
+
+                    // --- MineRock: defer destruction to next frame ---
+                    try
+                    {
+                        var rock = go.GetComponentInParent<MineRock>();
+                        if (rock != null)
+                        {
+                            if (processedRoots.Add(rock.GetInstanceID()))
+                            {
+                                if (rock.GetComponent<DeferredMineRockDestroy>() == null)
+                                {
+                                    var deferred = rock.gameObject.AddComponent<DeferredMineRockDestroy>();
+                                    deferred.Setup(9999f, hitPoint);
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                    catch { }
+
+                    // --- Trees ---
                     try
                     {
                         var tree = go.GetComponentInParent<TreeBase>();
-                        if (tree != null) { tree.Damage(aoeHit); ForceDestroyIfNeeded(tree, aoeHit, "TreeBase(AOE)"); destroyCount++; continue; }
+                        if (tree != null)
+                        {
+                            if (processedRoots.Add(tree.GetInstanceID()))
+                            {
+                                tree.Damage(aoeHit);
+                                ForceDestroyIfNeeded(tree, aoeHit, "TreeBase(AOE)");
+                            }
+                            continue;
+                        }
                     }
                     catch { }
                     try
                     {
                         var log = go.GetComponentInParent<TreeLog>();
-                        if (log != null) { log.Damage(aoeHit); ForceDestroyIfNeeded(log, aoeHit, "TreeLog(AOE)"); destroyCount++; continue; }
+                        if (log != null)
+                        {
+                            if (processedRoots.Add(log.GetInstanceID()))
+                            {
+                                log.Damage(aoeHit);
+                                ForceDestroyIfNeeded(log, aoeHit, "TreeLog(AOE)");
+                            }
+                            continue;
+                        }
                     }
                     catch { }
                     try
                     {
                         var dest = go.GetComponentInParent<Destructible>();
-                        if (dest != null) { dest.Damage(aoeHit); ForceDestroyIfNeeded(dest, aoeHit, "Destructible(AOE)"); destroyCount++; continue; }
+                        if (dest != null)
+                        {
+                            if (processedRoots.Add(dest.GetInstanceID()))
+                            {
+                                dest.Damage(aoeHit);
+                                ForceDestroyIfNeeded(dest, aoeHit, "Destructible(AOE)");
+                            }
+                            continue;
+                        }
                     }
                     catch { }
+                    // Ashlands fortress pieces and building structures
                     try
                     {
-                        var rock = go.GetComponentInParent<MineRock>();
-                        if (rock != null) { rock.Damage(aoeHit); ForceDestroyIfNeeded(rock, aoeHit, "MineRock(AOE)"); destroyCount++; continue; }
-                    }
-                    catch { }
-                    try
-                    {
-                        var rock5 = go.GetComponentInParent<MineRock5>();
-                        if (rock5 != null) { rock5.Damage(aoeHit); ForceDestroyIfNeeded(rock5, aoeHit, "MineRock5(AOE)"); destroyCount++; continue; }
+                        var wnt = go.GetComponentInParent<WearNTear>();
+                        if (wnt != null)
+                        {
+                            if (processedRoots.Add(wnt.GetInstanceID()))
+                            {
+                                var saved = ClearDamageModifiers(wnt);
+                                wnt.Damage(aoeHit);
+                                RestoreDamageModifiers(wnt, saved);
+                                ForceDestroyIfNeeded(wnt, aoeHit, "WearNTear(AOE)");
+                            }
+                            continue;
+                        }
                     }
                     catch { }
                 }
-
-                if (destroyCount > 0)
-                    ModLogger.Log($"AOE Destroy: {destroyCount} objects within {radius:F1}m radius");
             }
-            catch (Exception ex) { ModLogger.LogError($"AOE Destroy: {ex.Message}"); }
+            catch { }
             finally
             {
                 isApplyingAOE = false;
@@ -1605,16 +1895,23 @@ namespace MegaCrossbows
     [HarmonyPatch(typeof(TreeBase), "Damage")]
     public static class PatchDestroyTree
     {
+        private static Vector3 savedImpactPoint;
+
         public static void Prefix(HitData hit)
         {
-            try { DestroyObjectsHelper.TryApplyDestroyDamage(hit); }
+            try
+            {
+                if (DestroyObjectsHelper.IsDestroyTagged(hit))
+                    savedImpactPoint = hit.m_point;
+                DestroyObjectsHelper.TryApplyDestroyDamage(hit);
+            }
             catch { }
         }
         public static void Postfix(TreeBase __instance, HitData hit)
         {
             try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "TreeBase"); }
             catch { }
-            try { DestroyObjectsHelper.TryAOEDestroy(hit); }
+            try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
             catch { }
         }
     }
@@ -1623,34 +1920,65 @@ namespace MegaCrossbows
     [HarmonyPatch(typeof(TreeLog), "Damage")]
     public static class PatchDestroyLog
     {
+        private static Vector3 savedImpactPoint;
+
         public static void Prefix(HitData hit)
         {
-            try { DestroyObjectsHelper.TryApplyDestroyDamage(hit); }
+            try
+            {
+                if (DestroyObjectsHelper.IsDestroyTagged(hit))
+                    savedImpactPoint = hit.m_point;
+                DestroyObjectsHelper.TryApplyDestroyDamage(hit);
+            }
             catch { }
         }
         public static void Postfix(TreeLog __instance, HitData hit)
         {
             try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "TreeLog"); }
             catch { }
-            try { DestroyObjectsHelper.TryAOEDestroy(hit); }
+            try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
             catch { }
         }
     }
 
-    // Generic destructibles (small rocks, stumps, etc.)
+    // Generic destructibles (small rocks, stumps, fortress barricades, etc.)
     [HarmonyPatch(typeof(Destructible), "Damage")]
     public static class PatchDestroyDestructible
     {
-        public static void Prefix(HitData hit)
+        private static bool destroyModeActive = false;
+        private static object savedModifierData;
+        private static Vector3 savedImpactPoint;
+
+        public static void Prefix(Destructible __instance, HitData hit)
         {
-            try { DestroyObjectsHelper.TryApplyDestroyDamage(hit); }
+            try
+            {
+                // Bypass damage modifiers (Immune/VeryResistant) for destroy-tagged bolts
+                if (DestroyObjectsHelper.IsDestroyTagged(hit))
+                {
+                    destroyModeActive = true;
+                    savedImpactPoint = hit.m_point;
+                    savedModifierData = DestroyObjectsHelper.ClearDamageModifiers(__instance);
+                }
+                DestroyObjectsHelper.TryApplyDestroyDamage(hit);
+            }
             catch { }
         }
         public static void Postfix(Destructible __instance, HitData hit)
         {
+            try
+            {
+                if (destroyModeActive)
+                {
+                    destroyModeActive = false;
+                    DestroyObjectsHelper.RestoreDamageModifiers(__instance, savedModifierData);
+                    savedModifierData = null;
+                }
+            }
+            catch { }
             try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "Destructible"); }
             catch { }
-            try { DestroyObjectsHelper.TryAOEDestroy(hit); }
+            try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
             catch { }
         }
     }
@@ -1659,34 +1987,81 @@ namespace MegaCrossbows
     [HarmonyPatch(typeof(MineRock), "Damage")]
     public static class PatchDestroyMineRock
     {
+        private static Vector3 savedImpactPoint;
+
         public static void Prefix(HitData hit)
         {
-            try { DestroyObjectsHelper.TryApplyDestroyDamage(hit); }
+            try
+            {
+                if (DestroyObjectsHelper.isDeferredDamage) return;
+
+                if (DestroyObjectsHelper.IsDestroyTagged(hit))
+                    savedImpactPoint = hit.m_point;
+                DestroyObjectsHelper.TryApplyDestroyDamage(hit);
+            }
             catch { }
         }
         public static void Postfix(MineRock __instance, HitData hit)
         {
+            try
+            {
+                if (DestroyObjectsHelper.isDeferredDamage) return;
+            }
+            catch { }
             try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "MineRock"); }
             catch { }
-            try { DestroyObjectsHelper.TryAOEDestroy(hit); }
+            try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
             catch { }
         }
     }
 
-    // Large mineral deposits (copper, silver, etc. - multi-area)
+    // Large mineral deposits (copper, silver, Grausten, etc. - multi-area fracture)
     [HarmonyPatch(typeof(MineRock5), "Damage")]
     public static class PatchDestroyMineRock5
     {
-        public static void Prefix(HitData hit)
+        private static bool destroyModeActive = false;
+        private static object savedModifierData;
+        // MineRock5.Damage() modifies hit.m_point to the matched area's position.
+        // Save the bolt's actual impact point BEFORE Damage() runs.
+        private static Vector3 savedImpactPoint;
+
+        public static void Prefix(MineRock5 __instance, HitData hit)
         {
-            try { DestroyObjectsHelper.TryApplyDestroyDamage(hit); }
+            try
+            {
+                // Deferred damage from DeferredMineRockDestroy ï¿½ let vanilla handle it clean
+                if (DestroyObjectsHelper.isDeferredDamage) return;
+
+                if (DestroyObjectsHelper.IsDestroyTagged(hit))
+                {
+                    destroyModeActive = true;
+                    savedImpactPoint = hit.m_point; // save BEFORE MineRock5.Damage() modifies it
+                    savedModifierData = DestroyObjectsHelper.ClearDamageModifiers(__instance);
+                }
+                DestroyObjectsHelper.TryApplyDestroyDamage(hit);
+            }
             catch { }
         }
         public static void Postfix(MineRock5 __instance, HitData hit)
         {
-            try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "MineRock5"); }
+            try
+            {
+                // Deferred damage from DeferredMineRockDestroy ï¿½ skip all post-processing
+                if (DestroyObjectsHelper.isDeferredDamage) return;
+
+                if (destroyModeActive)
+                {
+                    destroyModeActive = false;
+                    DestroyObjectsHelper.RestoreDamageModifiers(__instance, savedModifierData);
+                    savedModifierData = null;
+                }
+            }
             catch { }
-            try { DestroyObjectsHelper.TryAOEDestroy(hit); }
+            // Fracture sub-areas using the ORIGINAL bolt impact point, not the modified hit.m_point.
+            try { DestroyObjectsHelper.DestroyMineRock5Areas(__instance, hit, savedImpactPoint); }
+            catch { }
+            // AOE destroy adjacent objects (trees, other rocks, etc.) ï¿½ was previously MISSING
+            try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
             catch { }
         }
     }

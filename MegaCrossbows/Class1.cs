@@ -15,6 +15,7 @@ namespace MegaCrossbows
 
         // General
         public static ConfigEntry<bool> ModEnabled;
+        public static ConfigEntry<string> ConfigProfile;
         public static ConfigEntry<bool> DestroyObjects;
         public static ConfigEntry<KeyCode> DestroyObjectsKey;
         public static ConfigEntry<float> FireRate;
@@ -27,7 +28,6 @@ namespace MegaCrossbows
         // Projectile
         public static ConfigEntry<float> Velocity;
         public static ConfigEntry<bool> NoGravity;
-        public static ConfigEntry<float> Distance;
         
         // Damage - Base
         public static ConfigEntry<float> DamageMultiplier;
@@ -57,10 +57,14 @@ namespace MegaCrossbows
 
         private void Awake()
         {
-            Logger.LogInfo("=== MegaCrossbows Awake() starting ===");
-            ModLogger.Initialize();
-            ModLogger.Log("=== Plugin Awake() called ===");
-            
+            // Profile (top of config file)
+            ConfigProfile = Config.Bind("0. Profile", "ConfigProfile", "Default",
+                new ConfigDescription(
+                    "Quick config preset.\n" +
+                    "Default = normal play settings.\n" +
+                    "Development = enables DestroyObjects + AOE radius 10m for testing.",
+                    new AcceptableValueList<string>("Default", "Development")));
+
             // General
             ModEnabled = Config.Bind("1. General", "Enabled", true, "Enable or disable the mod");
             DestroyObjects = Config.Bind("1. General", "DestroyObjects", false,
@@ -79,8 +83,6 @@ namespace MegaCrossbows
             // Base Valheim crossbow is ~200 m/s, so 470% = ~940 m/s
             Velocity = Config.Bind("3. Projectile", "Velocity", 470f, "Bolt velocity multiplier (470 = ~940 m/s, like an M4A1/M16)");
             NoGravity = Config.Bind("3. Projectile", "NoGravity", true, "Disable gravity for bolts (default: true for accuracy)");
-            Distance = Config.Bind("3. Projectile", "Distance", 1f,
-                new ConfigDescription("Bolt travel distance multiplier (1 = normal, 10 = 10x distance)", new AcceptableValueRange<float>(1f, 10f)));
             
             // Damage - Base
             DamageMultiplier = Config.Bind("4. Damage - Base", "BaseMultiplier", 1f, 
@@ -120,7 +122,8 @@ namespace MegaCrossbows
             BuildingFireDuration = Config.Bind("7. Building Damage", "BuildingFireDuration", 1f, 
                 new ConfigDescription("How long buildings burn (1 = normal Ashlands duration, 10 = 10x duration)", new AcceptableValueRange<float>(1f, 10f)));
 
-            ModLogger.Log($"Config Loaded - FireRate: {FireRate.Value}, Velocity: {Velocity.Value}");
+            // Apply profile overrides
+            ApplyProfileOverrides();
 
             // Watch config file for live reload on save
             SetupConfigWatcher();
@@ -129,13 +132,6 @@ namespace MegaCrossbows
             {
                 _harmony = new Harmony(PluginGUID);
                 _harmony.PatchAll();
-                Logger.LogInfo($"{PluginName} v{PluginVersion} loaded!");
-                ModLogger.Log($"=== {PluginName} v{PluginVersion} loaded! ===");
-            }
-            else
-            {
-                ModLogger.Log("Mod is DISABLED in config");
-                Logger.LogWarning($"{PluginName} is DISABLED in config");
             }
         }
 
@@ -157,13 +153,8 @@ namespace MegaCrossbows
                 _configWatcher.Changed += OnConfigFileChanged;
                 _configWatcher.NotifyFilter = NotifyFilters.LastWrite;
                 _configWatcher.EnableRaisingEvents = true;
-
-                ModLogger.Log($"Config watcher active: {configFile}");
             }
-            catch (System.Exception ex)
-            {
-                ModLogger.LogError($"Failed to setup config watcher: {ex.Message}");
-            }
+            catch { }
         }
 
         private void OnConfigFileChanged(object sender, FileSystemEventArgs e)
@@ -171,11 +162,17 @@ namespace MegaCrossbows
             try
             {
                 Config.Reload();
-                ModLogger.Log("Config reloaded from file");
+                ApplyProfileOverrides();
             }
-            catch (System.Exception ex)
+            catch { }
+        }
+
+        private static void ApplyProfileOverrides()
+        {
+            if (ConfigProfile.Value == "Development")
             {
-                ModLogger.LogError($"Config reload failed: {ex.Message}");
+                DestroyObjects.Value = true;
+                AoeRadius.Value = 10f;
             }
         }
     }

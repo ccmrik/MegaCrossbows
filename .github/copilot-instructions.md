@@ -1,29 +1,15 @@
 # MegaCrossbows Copilot Instructions
 
-## ?? MANDATORY: EVERY ITERATION
+## MANDATORY: EVERY ITERATION
 
 1. **Update these instructions** if any features, configs, patches, or behavior changed
 2. **Push to git** after every iteration: `git add -A && git commit -m "description" && git push`
-3. **Only read logs from the latest timestamp** — skip old data to save time
 
-## ?? MANDATORY: CHECK LOGS FIRST ON EVERY PROMPT
+## MANDATORY: BEFORE MAKING CHANGES
 
-**BEFORE making ANY code changes, ALWAYS:**
-
-1. **Run** `Get-Content "C:\Users\rikal\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins\MegaCrossbows\MegaCrossbows.log" -Tail 100`
-2. **Only read from the latest timestamp** — ignore old sessions
-3. **Reference the logs in your response** — quote specific log lines
-4. **Check VALHEIM_API_VERIFIED.md** for verified methods
-5. **Review relevant code files** before making changes
-
-### Log Analysis Checklist:
-- Are patches loading? Look for "Plugin loaded" messages
-- Are methods being called? Look for function entry logs
-- Are there errors? Look for "ERROR" or exception messages
-- Check `=== BOLT DAMAGE DIAGNOSTIC ===` for damage values
-- Check `=== PROJECTILE STATS ===` for velocity/TTL/range
-- Check `=== DESTROY HIT CHECK ===` for object destruction flow
-- Check `=== STATUS EFFECT DoT DIAGNOSTIC ===` for elemental DoT
+1. **Check VALHEIM_API_VERIFIED.md** for verified methods
+2. **Review relevant code files** before making changes
+3. The mod has **NO logging** - do not look for log files or add any debug output
 
 ---
 
@@ -40,7 +26,7 @@
 
 ## Project Overview
 
-BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapons with full config control. All settings auto-reload on file save (no restart needed).
+BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapons with full config control. All settings auto-reload on file save (no restart needed). No custom logging — the mod is silent.
 
 **Plugin GUID**: `com.rikal.megacrossbows`
 **Target Framework**: .NET Framework 4.6.2 (Valheim requirement)
@@ -54,9 +40,37 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 |---|---|
 | `MegaCrossbows/Class1.cs` | Main plugin entry, all BepInEx config definitions, FileSystemWatcher for live config reload |
 | `MegaCrossbows/CrossbowPatches.cs` | All Harmony patches, firing logic, HUD, zoom, sound, animation, building damage, object destruction, DoT, bolt stacks |
-| `MegaCrossbows/ModLogger.cs` | Custom file logger to `MegaCrossbows.log` in plugin folder |
 | `MegaCrossbows/MegaCrossbows.csproj` | Project file with all assembly references |
 | `VALHEIM_API_VERIFIED.md` | Verified working/broken Valheim API methods — **check before any patch** |
+| `build-and-deploy.ps1` | Build and deploy DLL to plugin folder |
+| `quick-commit.ps1` | Git add, commit, push shortcut |
+| `version-bump.ps1` | Semantic version bump (patch/minor/major) |
+
+---
+
+## Coding Standards
+
+### General Rules
+- Target: .NET Framework 4.6.2
+- Always check `MegaCrossbowsPlugin.ModEnabled.Value` before applying any patch logic
+- Always check `__instance == Player.m_localPlayer` for player-specific patches
+- Use `try-catch` around ALL reflection and unverified API calls
+- **No logging** — do not add `ModLogger`, `Logger.Log`, `Debug.Log`, or any logging calls
+- Never cache config values — read `.Value` at point of use for live reload
+
+### Harmony Patching Rules
+- Wrap ALL patch bodies in try-catch to prevent crashing other mods
+- **Check VALHEIM_API_VERIFIED.md** before attempting any new Harmony patch
+- If a method is not listed, assume it doesn't exist until verified
+- Never guess method names — guessing causes Harmony errors that crash mod loading
+- Use `[HarmonyPrefix]` returning `false` to block original method
+- Use `[HarmonyPostfix]` to add behavior after
+- Document any new verified/broken methods in VALHEIM_API_VERIFIED.md
+
+### Performance Rules
+- Cache `GetComponentInChildren<T>()` results in static fields
+- Cap AOE spread to prevent performance issues
+- Use `Physics.OverlapSphere` with layer masks, not `FindObjectsOfType`
 
 ---
 
@@ -72,58 +86,49 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 ### 2. Damage System
 All damage types are **multipliers of the bolt's base pierce damage**:
 - `0` = none, `0.1` = 10% of base pierce, `1` = equal to base pierce, `10` = 10x base pierce
-- Example: Black metal bolt (62 pierce) with Blunt=0.1 ? 6.2 blunt damage
-- Example: Charred bolt (82 pierce) with Fire=10 ? 820 fire damage
 - `BaseMultiplier` scales `m_damage` (weapon base damage), not pierce-based
 - `Stagger` scales weapon `m_attackForce` and `m_staggerMultiplier`
 - **Chop/Pickaxe** passed through from weapon base stats (unless Destroy Objects active)
 
 ### 3. Elemental DoT System
 Two-layer approach for reliable DoT:
-1. **In FireBolt**: Elemental damage on HitData is multiplied by DoT multiplier (if DoT > 0). This scales the damage fed into `SE_Burning`/`SE_Poison`.
-2. **`PatchCharacterDamageDoT` on `Character.Damage` Postfix**: After the full damage pipeline runs, finds elemental status effects on the target and scales their TTL and damage pool by DoT multiplier. Handles `DamageTypes` struct fields (not just float).
+1. **In FireBolt**: Elemental damage on HitData scaled by DoT multiplier
+2. **`PatchCharacterDamageDoT` on `Character.Damage` Postfix**: Scales status effect TTL and damage pool. Handles `DamageTypes` struct fields (not just float).
 - `DoT=0`: No modification (default Valheim behavior)
-- `DoT=1`: 1x (same as default)
-- `DoT=10`: 10x damage AND 10x duration
+- `DoT=1+`: Multiply burn/poison duration AND per-tick damage
 
 ### 4. Object Destruction (`DestroyObjects` + modifier key)
-- **Config**: `DestroyObjects` (bool, default false) + `DestroyObjectsKey` (KeyCode, default LeftAlt)
-- **At fire time**: If enabled AND modifier key held ? tags bolt with `m_chop=999999, m_pickaxe=999999` on HitData (reliably stored in `Projectile.m_damage`). Also sets `projectile.m_toolTier=9999` via reflection.
-- **At hit time**: Destroy patches detect tagged bolts by checking `m_chop >= 999000 || m_pickaxe >= 999000`. Boosts ALL damage types to 999999 and sets `hit.m_toolTier=9999`.
-- **AOE Destruction**: After direct hit, `TryAOEDestroy()` uses `Physics.OverlapSphere` with configured AOE radius to find and destroy nearby resource objects.
-- **Recursion guard**: `isApplyingAOE` flag prevents infinite recursion from AOE hits.
-- **Patched types**: `TreeBase`, `TreeLog`, `Destructible`, `MineRock`, `MineRock5` (covers all Valheim destructible world objects)
-- **Note**: Ashlands cliffs (`cliff_ashlands*` on `static_solid` layer) are static terrain — NOT destroyable.
+- Tags bolt with `m_chop=999999, m_pickaxe=999999` at fire time
+- Destroy patches detect tagged bolts by checking `m_chop >= 999000 || m_pickaxe >= 999000`
+- AOE destruction via `Physics.OverlapSphere` with configured AOE radius
+- Recursion guard: `isApplyingAOE` flag prevents infinite recursion
+- Patched types: `TreeBase`, `TreeLog`, `Destructible`, `MineRock`, `MineRock5`
+- Ashlands cliffs (`cliff_ashlands*` on `static_solid` layer) are static terrain — NOT destroyable
 
 ### 5. Bolt Stack Size (`PatchBoltStackSize` on `ObjectDB.Awake`)
-- Sets `m_maxStackSize = 1000` for all items detected as bolts by `CrossbowHelper.IsBolt()`
+- Sets `m_maxStackSize = 1000` for all bolt items
 
 ### 6. Projectile Physics
 - Bolt spawns at player chest height, aimed at crosshair raycast point
 - Velocity multiplied by config (470 default = ~940 m/s)
 - Optional no-gravity (both `Projectile.m_gravity` and `Rigidbody.useGravity`)
-- **CCD** (`CollisionDetectionMode.ContinuousDynamic`) always enabled to prevent tunneling at high speed
-- TTL = `max(base, 60s) × Distance` multiplier for travel range
+- **CCD** (`CollisionDetectionMode.ContinuousDynamic`) always enabled to prevent tunneling
 - AOE radius configurable (shared between combat and object destruction)
 
 ### 7. Zoom System (`HandleZoom` / `ResetZoom`)
-- **Right mouse hold** = zoom in
-- Scroll wheel adjusts zoom level (min ? max)
+- **Right mouse hold** = zoom in, scroll wheel adjusts level
 - Modifies `GameCamera.instance.m_fov`
 - FOV restored on release or when UI opens
 
 ### 8. Magazine / Reload
 - Magazine counts down per shot
 - At zero ? 2-second reload with HUD message
-- Magazine capacity configurable
 
 ### 9. HUD (`CrossbowHUD` MonoBehaviour)
 - `OnGUI()` renders ammo count, zoom level, distance to target
-- Distance uses same raycast as firing (crosshair-accurate)
 - HUD throttled to 10 updates/sec for performance
 
 ### 10. Building Damage (`PatchBuildingDamage` on `WearNTear.Damage`)
-- Identifies crossbow bolts via `hit.m_skill == Skills.SkillType.Crossbows`
 - Building damage multiplier, fire damage injection, fire spread, Ashlands ignite
 
 ### 11. Crossbow Detection (`CrossbowHelper`)
@@ -137,7 +142,6 @@ Two-layer approach for reliable DoT:
 ### 13. Live Config Reload
 - `FileSystemWatcher` monitors the `.cfg` file
 - All `ConfigEntry.Value` properties read at point of use (not cached)
-- No game restart needed
 
 ---
 
@@ -166,7 +170,6 @@ Config auto-reloads on save (FileSystemWatcher).
 |---|---|---|---|---|
 | `Velocity` | float | `470` | — | Bolt velocity % (470 = ~940 m/s) |
 | `NoGravity` | bool | `true` | — | Disable bolt gravity |
-| `Distance` | float | `1` | 1-10 | Bolt travel distance multiplier (scales TTL) |
 
 ### 4. Damage - Base (multiplier of bolt's base pierce damage)
 | Key | Type | Default | Range | Description |
@@ -209,8 +212,10 @@ Config auto-reloads on save (FileSystemWatcher).
 | `PatchBlockVanillaAttack` | `Humanoid.StartAttack` | Prefix | Block vanilla attack |
 | `PatchBlockBlocking` | `Humanoid.BlockAttack` / `IsBlocking` | Prefix | Right-click = zoom |
 | `PatchDurability` | `ItemDrop.ItemData.GetMaxDurability` / `GetDurabilityPercentage` | Prefix | Indestructible crossbows |
+| `PatchSuppressDamageText` | `DamageText.AddInworldText` | Prefix | Suppress damage number spam |
 | `PatchPlayerUpdate` | `Player.Update` | Postfix | Main logic (fire, zoom, HUD) |
 | `PatchBuildingDamage` | `WearNTear.Damage` | Prefix+Postfix | Building damage/fire |
+| `PatchCrossbowAOE` | `Character.Damage` | Postfix | AOE splash from impact point |
 | `PatchCharacterDamageDoT` | `Character.Damage` | Postfix | Elemental DoT TTL+damage scaling |
 | `PatchBoltStackSize` | `ObjectDB.Awake` | Postfix | Bolt stack size ? 1000 |
 | `PatchDestroyTree` | `TreeBase.Damage` | Prefix+Postfix | Destroy trees + AOE |
@@ -221,54 +226,53 @@ Config auto-reloads on save (FileSystemWatcher).
 
 ---
 
-## Coding Standards
-
-### General Rules
-- Target: .NET Framework 4.6.2
-- Always check `MegaCrossbowsPlugin.ModEnabled.Value` before applying any patch logic
-- Always check `__instance == Player.m_localPlayer` for player-specific patches
-- Use `try-catch` around ALL reflection and unverified API calls
-- Use `ModLogger.Log()` for significant events, `ModLogger.LogError()` for errors
-- Never cache config values — read `.Value` at point of use for live reload
-
-### Harmony Patching Rules
-- Wrap ALL patch bodies in try-catch to prevent crashing other mods
-- Test every new patch against VALHEIM_API_VERIFIED.md
-- Use `[HarmonyPrefix]` returning `false` to block original method
-- Use `[HarmonyPostfix]` to add behavior after
-
-### Performance Rules
-- Cache `GetComponentInChildren<T>()` results in static fields
-- Throttle logging (every 2 seconds for diagnostics)
-- Cap AOE spread to prevent performance issues
-- Use `Physics.OverlapSphere` with layer masks, not `FindObjectsOfType`
-
----
-
 ## File Paths
 
 | Path | Purpose |
 |---|---|
-| `C:\Program Files (x86)\Steam\steamapps\common\Valheim` | Valheim install |
+| `C:\Program Files (x86)\Steam\steamapps\common\Valheim` | Valheim install (client) |
 | `...\Valheim\valheim_Data\Managed\` | Game assemblies |
 | `...\Valheim\unstripped_corlib\` | Unity assemblies |
-| `C:\Users\rikal\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins\MegaCrossbows\` | Deployed plugin |
+| `C:\Users\Rik\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins\MegaCrossbows\` | Deployed plugin (client, via r2modman) |
+| `C:\Users\Rik\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins` | Mods folder (client) |
 | `...\BepInEx\config\com.rikal.megacrossbows.cfg` | Config file |
-| `...\BepInEx\plugins\MegaCrossbows\MegaCrossbows.log` | Custom mod log |
+| `C:\Program Files (x86)\Steam\steamapps\common\Valheim dedicated server` | Dedicated server install |
+| `C:\Users\Rik\AppData\LocalLow\IronGate\Valheim` | Server save directory |
+| `C:\Users\Rik\OneDrive\Valheim\logs` | Server logs (WinSW) |
 
 ---
 
 ## Build & Deploy
 
-### Build Process
-1. PostBuild event in `.csproj` auto-copies DLL to plugin folder
-2. All references are `Private=false` (no DLL bloat)
+```powershell
+.\build-and-deploy.ps1
+```
 
-### After Every Iteration
-1. ? Build successful (no compilation errors)
-2. ? DLL deployed to plugin folder
-3. ? Update this instructions file
-4. ? Git commit and push: `git add -A && git commit -m "description" && git push`
+- PostBuild event in `.csproj` auto-copies DLL to plugin folder
+- All references are `Private=false` (no DLL bloat)
+- If DLL deployment fails, log out of Valheim and retry
+
+---
+
+## Dedicated Server
+
+Valheim dedicated server runs as a Windows service via **WinSW** (`Win-SW-x64`).
+
+- **Service ID**: `ValheimServer`
+- **Service Name**: Valheim Kvastur Server
+- **World**: Kvastur
+- **Port**: 2456
+- **Save dir**: `C:\Users\Rik\AppData\LocalLow\IronGate\Valheim`
+- **Logs**: `C:\Users\Rik\OneDrive\Valheim\logs`
+- **Save interval**: 600s, **Backups**: 4 (short: 7200s, long: 43200s)
+
+Manage via:
+```powershell
+# Start/stop/restart
+sc start ValheimServer
+sc stop ValheimServer
+sc query ValheimServer
+```
 
 ---
 
@@ -282,10 +286,3 @@ Config auto-reloads on save (FileSystemWatcher).
 - **SE_Burning.m_damage is DamageTypes struct**, not float — must handle via reflection correctly
 - **Animator speed affects ALL animations** — must reset to 1.0 when not firing
 
----
-
-## Git Workflow
-- Commit after each feature completion
-- Use semantic versioning in commit messages
-- Tag releases with version number
-- Include changelog in version commits
