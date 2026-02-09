@@ -103,43 +103,50 @@ Two-layer approach for reliable DoT:
 - AOE destruction via `Physics.OverlapSphere` with configured AOE radius
 - Recursion guard: `isApplyingAOE` flag prevents infinite recursion
 - Patched types: `TreeBase`, `TreeLog`, `Destructible`, `MineRock`, `MineRock5`
+- **Buildings (`WearNTear`) are EXCLUDED** from destroy mode — they are never instant-destroyed
 - Ashlands cliffs (`cliff_ashlands*` on `static_solid` layer) are static terrain — NOT destroyable
 
-### 5. Bolt Stack Size (`PatchBoltStackSize` on `ObjectDB.Awake`)
+### 5. HouseFire (`HouseFireHelper`)
+- When ALT-mode bolt hits a building piece (`WearNTear`), spawns Valheim's native `Fire` at impact point
+- Also spawns fire on buildings within AOE radius of destroy-mode hits
+- Prefab found at runtime: tries known names, then searches `Cinder.m_houseFirePrefab`, then any prefab with `Fire` component
+- Cached after first lookup
+
+### 6. Bolt Stack Size (`PatchBoltStackSize` on `ObjectDB.Awake`)
 - Sets `m_maxStackSize = 1000` for all bolt items
 
-### 6. Projectile Physics
+### 7. Projectile Physics
 - Bolt spawns at player chest height, aimed at crosshair raycast point
 - Velocity multiplied by config (470 default = ~940 m/s)
 - Optional no-gravity (both `Projectile.m_gravity` and `Rigidbody.useGravity`)
 - **CCD** (`CollisionDetectionMode.ContinuousDynamic`) always enabled to prevent tunneling
 - AOE radius configurable (shared between combat and object destruction)
 
-### 7. Zoom System (`HandleZoom` / `ResetZoom`)
+### 8. Zoom System (`HandleZoom` / `ResetZoom`)
 - **Right mouse hold** = zoom in, scroll wheel adjusts level
 - Modifies `GameCamera.instance.m_fov`
 - FOV restored on release or when UI opens
 
-### 8. Magazine / Reload
+### 9. Magazine / Reload
 - Magazine counts down per shot
 - At zero ? 2-second reload with HUD message
 
-### 9. HUD (`CrossbowHUD` MonoBehaviour)
+### 10. HUD (`CrossbowHUD` MonoBehaviour)
 - `OnGUI()` renders ammo count, zoom level, distance to target
 - HUD throttled to 10 updates/sec for performance
 
-### 10. Building Damage (`PatchBuildingDamage` on `WearNTear.Damage`)
+### 11. Building Damage (`PatchBuildingDamage` on `WearNTear.Damage`)
 - Building damage multiplier, fire damage injection, fire spread, Ashlands ignite
 
-### 11. Crossbow Detection (`CrossbowHelper`)
+### 12. Crossbow Detection (`CrossbowHelper`)
 - Checks `m_skillType == Skills.SkillType.Crossbows`
 - Fallback: name contains "crossbow", "arbalest", or "ripper"
 - Fallback: ammo type contains "bolt"
 
-### 12. Durability
+### 13. Durability
 - Crossbows set to effectively indestructible
 
-### 13. Live Config Reload
+### 14. Live Config Reload
 - `FileSystemWatcher` monitors the `.cfg` file
 - All `ConfigEntry.Value` properties read at point of use (not cached)
 
@@ -214,7 +221,7 @@ Config auto-reloads on save (FileSystemWatcher).
 | `PatchDurability` | `ItemDrop.ItemData.GetMaxDurability` / `GetDurabilityPercentage` | Prefix | Indestructible crossbows |
 | `PatchSuppressDamageText` | `DamageText.AddInworldText` | Prefix | Suppress damage number spam |
 | `PatchPlayerUpdate` | `Player.Update` | Postfix | Main logic (fire, zoom, HUD) |
-| `PatchBuildingDamage` | `WearNTear.Damage` | Prefix+Postfix | Building damage/fire |
+| `PatchBuildingDamage` | `WearNTear.Damage` | Prefix+Postfix | Building damage/fire, HouseFire on ALT-mode |
 | `PatchCrossbowAOE` | `Character.Damage` | Postfix | AOE splash from impact point |
 | `PatchCharacterDamageDoT` | `Character.Damage` | Postfix | Elemental DoT TTL+damage scaling |
 | `PatchBoltStackSize` | `ObjectDB.Awake` | Postfix | Bolt stack size ? 1000 |
@@ -231,8 +238,7 @@ Config auto-reloads on save (FileSystemWatcher).
 | Path | Purpose |
 |---|---|
 | `C:\Program Files (x86)\Steam\steamapps\common\Valheim` | Valheim install (client) |
-| `...\Valheim\valheim_Data\Managed\` | Game assemblies |
-| `...\Valheim\unstripped_corlib\` | Unity assemblies |
+| `...\Valheim\valheim_Data\Managed\` | Game assemblies + Unity assemblies |
 | `C:\Users\Rik\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins\MegaCrossbows\` | Deployed plugin (client, via r2modman) |
 | `C:\Users\Rik\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins` | Mods folder (client) |
 | `...\BepInEx\config\com.rikal.megacrossbows.cfg` | Config file |

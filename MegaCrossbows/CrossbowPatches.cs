@@ -969,15 +969,16 @@ namespace MegaCrossbows
 
     // =========================================================================
     // BUILDING DAMAGE - WearNTear patch for crossbow bolts
+    // Buildings are EXCLUDED from destroy mode — ALT-mode spawns HouseFire instead.
     // =========================================================================
     [HarmonyPatch(typeof(WearNTear), "Damage")]
     public static class PatchBuildingDamage
     {
         private static bool isApplyingSpread = false;
 
-        // Destroy mode: save/restore damage modifiers to bypass fortress immunity
-        private static bool destroyModeActive = false;
-        private static object savedModifierData;
+        // Track whether the current hit was destroy-tagged so Postfix can spawn fire
+        private static bool wasDestroyTagged = false;
+        private static Vector3 savedHitPoint;
 
         public static void Prefix(WearNTear __instance, HitData hit)
         {
@@ -986,14 +987,16 @@ namespace MegaCrossbows
                 if (!MegaCrossbowsPlugin.ModEnabled.Value) return;
                 if (hit == null) return;
 
-                // --- Destroy mode: bypass damage modifiers on fortress/building pieces ---
-                // Ashlands fortress pieces have damage modifiers with Immune/VeryResistant
-                // entries that block all damage. Clear them so destroy-tagged bolts work.
+                // --- Buildings are EXCLUDED from destroy mode ---
+                // Instead of destroying, strip the destroy tags so vanilla damage
+                // goes through normally, and mark for HouseFire spawn in Postfix.
                 if (DestroyObjectsHelper.IsDestroyTagged(hit))
                 {
-                    destroyModeActive = true;
-                    savedModifierData = DestroyObjectsHelper.ClearDamageModifiers(__instance);
-                    DestroyObjectsHelper.TryApplyDestroyDamage(hit);
+                    wasDestroyTagged = true;
+                    savedHitPoint = hit.m_point;
+                    // Strip destroy-level damage so the building takes normal hit
+                    hit.m_damage.m_chop = 0f;
+                    hit.m_damage.m_pickaxe = 0f;
                     return;
                 }
 
@@ -1020,7 +1023,6 @@ namespace MegaCrossbows
                 float fireMult = MegaCrossbowsPlugin.BuildingFireDamage.Value;
                 if (fireMult > 0f)
                 {
-                    // Base fire damage of 10 at level 1, scaling to 100 at level 10
                     float fireDmg = 10f * fireMult;
                     hit.m_damage.m_fire = Mathf.Max(hit.m_damage.m_fire, fireDmg);
                 }
@@ -1035,14 +1037,12 @@ namespace MegaCrossbows
                 if (!MegaCrossbowsPlugin.ModEnabled.Value) return;
                 if (hit == null) return;
 
-                // --- Restore modifiers and force-destroy after destroy mode ---
-                if (destroyModeActive)
+                // --- Destroy-tagged bolt hit a building: spawn HouseFire ---
+                if (wasDestroyTagged)
                 {
-                    destroyModeActive = false;
-                    DestroyObjectsHelper.RestoreDamageModifiers(__instance, savedModifierData);
-                    savedModifierData = null;
-                    DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "WearNTear");
-                    DestroyObjectsHelper.TryAOEDestroy(hit);
+                    wasDestroyTagged = false;
+                    Vector3 firePos = savedHitPoint != Vector3.zero ? savedHitPoint : __instance.transform.position;
+                    HouseFireHelper.SpawnFire(firePos);
                     return;
                 }
 
@@ -1052,13 +1052,11 @@ namespace MegaCrossbows
                 float fireMult = MegaCrossbowsPlugin.BuildingFireDamage.Value;
                 if (fireMult <= 0f) return;
 
-                // Try to trigger/extend Ashlands fire behavior via reflection
                 TryApplyAshlandsFire(__instance);
 
-                // Fire spread to nearby building pieces
                 if (fireMult >= 2f)
                 {
-                    float spreadRadius = fireMult; // 2-10m radius based on fire level
+                    float spreadRadius = fireMult;
                     ApplyFireSpread(__instance, spreadRadius, fireMult);
                 }
             }
@@ -1616,6 +1614,9 @@ namespace MegaCrossbows
             // MineRock5/MineRock use deferred destruction so drops spawn properly
             if (target is MineRock5 || target is MineRock) return;
 
+            // Buildings are excluded from destroy mode — they get HouseFire instead
+            if (target is WearNTear) return;
+
             try
             {
                 // Try setting health fields to 0 via reflection (many types use m_health)
@@ -1864,7 +1865,7 @@ namespace MegaCrossbows
                         }
                     }
                     catch { }
-                    // Ashlands fortress pieces and building structures
+                    // Buildings: spawn fire instead of destroying
                     try
                     {
                         var wnt = go.GetComponentInParent<WearNTear>();
@@ -1872,10 +1873,7 @@ namespace MegaCrossbows
                         {
                             if (processedRoots.Add(wnt.GetInstanceID()))
                             {
-                                var saved = ClearDamageModifiers(wnt);
-                                wnt.Damage(aoeHit);
-                                RestoreDamageModifiers(wnt, saved);
-                                ForceDestroyIfNeeded(wnt, aoeHit, "WearNTear(AOE)");
+                                HouseFireHelper.SpawnFire(wnt.transform.position);
                             }
                             continue;
                         }
@@ -1888,6 +1886,82 @@ namespace MegaCrossbows
             {
                 isApplyingAOE = false;
             }
+        }
+    }
+
+    // =========================================================================
+    // HOUSE FIRE - Spawns Valheim's native fire on buildings hit by ALT-mode bolts.
+    // Searches ZNetScene prefabs at runtime for one with a Fire component,
+    // caches the result, then instantiates at hit point.
+    // =========================================================================
+    public static class HouseFireHelper
+    {
+        private static GameObject cachedFirePrefab;
+        private static bool searchDone = false;
+
+        public static void SpawnFire(Vector3 position)
+        {
+            try
+            {
+                if (!searchDone) FindFirePrefab();
+                if (cachedFirePrefab == null) return;
+
+                UnityEngine.Object.Instantiate(cachedFirePrefab, position + Vector3.up * 0.1f, Quaternion.identity);
+            }
+            catch { }
+        }
+
+        private static void FindFirePrefab()
+        {
+            searchDone = true;
+            try
+            {
+                if (ZNetScene.instance == null) return;
+
+                // Try known prefab names first (fastest path)
+                string[] knownNames = { "fire_house", "HouseFire", "houseFire", "fx_fire_house" };
+                foreach (var name in knownNames)
+                {
+                    var prefab = ZNetScene.instance.GetPrefab(name);
+                    if (prefab != null)
+                    {
+                        cachedFirePrefab = prefab;
+                        return;
+                    }
+                }
+
+                // Fallback: find any Cinder prefab and grab its m_houseFirePrefab field
+                var cinderField = typeof(Cinder).GetField("m_houseFirePrefab",
+                    BindingFlags.Public | BindingFlags.Instance);
+
+                if (cinderField != null)
+                {
+                    foreach (var prefab in ZNetScene.instance.m_prefabs)
+                    {
+                        if (prefab == null) continue;
+                        var cinder = prefab.GetComponent<Cinder>();
+                        if (cinder == null) continue;
+                        var hfPrefab = cinderField.GetValue(cinder) as GameObject;
+                        if (hfPrefab != null)
+                        {
+                            cachedFirePrefab = hfPrefab;
+                            return;
+                        }
+                    }
+                }
+
+                // Last resort: find any prefab with a Fire component
+                foreach (var prefab in ZNetScene.instance.m_prefabs)
+                {
+                    if (prefab == null) continue;
+                    if (prefab.GetComponent<Fire>() != null)
+                    {
+                        cachedFirePrefab = prefab;
+                        return;
+                    }
+                }
+            }
+            catch { }
         }
     }
 

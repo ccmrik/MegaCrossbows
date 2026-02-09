@@ -11,11 +11,11 @@
 
   <ItemGroup>
     <Reference Include="BepInEx">
-      <HintPath>C:\Users\rikal\AppData\Roaming\r2modmanPlus-local\Valheim\cache\denikson-BepInExPack_Valheim\5.4.1500\BepInExPack_Valheim\BepInEx\core\BepInEx.dll</HintPath>
+      <HintPath>C:\Users\Rik\AppData\Roaming\r2modmanPlus-local\Valheim\cache\denikson-BepInExPack_Valheim\5.4.2333\BepInExPack_Valheim\BepInEx\core\BepInEx.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="0Harmony">
-      <HintPath>C:\Users\rikal\AppData\Roaming\r2modmanPlus-local\Valheim\cache\denikson-BepInExPack_Valheim\5.4.1500\BepInExPack_Valheim\BepInEx\core\0Harmony.dll</HintPath>
+      <HintPath>C:\Users\Rik\AppData\Roaming\r2modmanPlus-local\Valheim\cache\denikson-BepInExPack_Valheim\5.4.2333\BepInExPack_Valheim\BepInEx\core\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="assembly_guiutils">
@@ -30,52 +30,46 @@
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\assembly_valheim.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="0Harmony">
-      <HintPath>C:\Users\rikal\AppData\Roaming\r2modmanPlus-local\Valheim\cache\denikson-BepInExPack_Valheim\5.4.1500\BepInExPack_Valheim\BepInEx\core\0Harmony.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
     <Reference Include="UnityEngine">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\unstripped_corlib\UnityEngine.dll</HintPath>
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\unstripped_corlib\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\unstripped_corlib\UnityEngine.InputLegacyModule.dll</HintPath>
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.UI">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\unstripped_corlib\UnityEngine.UI.dll</HintPath>
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.UI.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.PhysicsModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\unstripped_corlib\UnityEngine.PhysicsModule.dll</HintPath>
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\unstripped_corlib\UnityEngine.IMGUIModule.dll</HintPath>
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\unstripped_corlib\UnityEngine.TextRenderingModule.dll</HintPath>
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.AnimationModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\unstripped_corlib\UnityEngine.AnimationModule.dll</HintPath>
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.AnimationModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.AudioModule">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\unstripped_corlib\UnityEngine.AudioModule.dll</HintPath>
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.AudioModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="xcopy &quot;$(TargetPath)&quot; &quot;C:\Users\rikal\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins\$(ProjectName)\&quot; /Y /I" IgnoreExitCode="true" />
-    <!-- Delete config file to ensure fresh defaults are used -->
-    <Exec Command="del /Q &quot;C:\Users\rikal\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\config\com.rikal.megacrossbows.cfg&quot; 2>nul" IgnoreExitCode="true" />
+    <Exec Command="xcopy &quot;$(TargetPath)&quot; &quot;C:\Users\Rik\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins\$(ProjectName)\&quot; /Y /I" IgnoreExitCode="true" />
   </Target>
 
 </Project>
