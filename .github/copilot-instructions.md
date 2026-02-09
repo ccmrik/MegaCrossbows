@@ -108,7 +108,9 @@ Two-layer approach for reliable DoT:
 
 ### 5. HouseFire (`HouseFireHelper`)
 - When ALT-mode bolt hits a building piece (`WearNTear`), spawns Valheim's native `Fire` at impact point
+- Also spawns fire on ALL ALT-mode hits: trees, logs, rocks, destructibles, mine deposits
 - Also spawns fire on buildings within AOE radius of destroy-mode hits
+- Forces `m_burnable = true` on nearby `WearNTear` pieces so stone, black marble, and grausten burn
 - Prefab found at runtime: tries known names, then searches `Cinder.m_houseFirePrefab`, then any prefab with `Fire` component
 - Cached after first lookup
 

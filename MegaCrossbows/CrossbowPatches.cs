@@ -1890,23 +1890,52 @@ namespace MegaCrossbows
     }
 
     // =========================================================================
-    // HOUSE FIRE - Spawns Valheim's native fire on buildings hit by ALT-mode bolts.
+    // HOUSE FIRE - Spawns Valheim's native fire on ALT-mode bolt impacts.
     // Searches ZNetScene prefabs at runtime for one with a Fire component,
     // caches the result, then instantiates at hit point.
+    // Also forces m_burnable=true on nearby WearNTear pieces so stone,
+    // black marble, and grausten buildings can burn.
     // =========================================================================
     public static class HouseFireHelper
     {
         private static GameObject cachedFirePrefab;
         private static bool searchDone = false;
+        private static float cachedDotRadius = 1f;
 
         public static void SpawnFire(Vector3 position)
         {
             try
             {
+                if (position == Vector3.zero) return;
                 if (!searchDone) FindFirePrefab();
                 if (cachedFirePrefab == null) return;
 
                 UnityEngine.Object.Instantiate(cachedFirePrefab, position + Vector3.up * 0.1f, Quaternion.identity);
+
+                // Force m_burnable=true on nearby building pieces so Fire.Dot()
+                // damages stone, black marble, grausten, etc.
+                ForceBurnableNearby(position);
+            }
+            catch { }
+        }
+
+        private static void ForceBurnableNearby(Vector3 position)
+        {
+            try
+            {
+                float radius = Mathf.Max(cachedDotRadius, MegaCrossbowsPlugin.AoeRadius.Value);
+                int pieceMask = LayerMask.GetMask("piece", "piece_nonsolid");
+                Collider[] nearby = Physics.OverlapSphere(position, radius, pieceMask);
+
+                HashSet<int> processed = new HashSet<int>();
+                foreach (var col in nearby)
+                {
+                    if (col == null) continue;
+                    var wnt = col.GetComponentInParent<WearNTear>();
+                    if (wnt == null) continue;
+                    if (!processed.Add(wnt.GetInstanceID())) continue;
+                    wnt.m_burnable = true;
+                }
             }
             catch { }
         }
@@ -1925,7 +1954,7 @@ namespace MegaCrossbows
                     var prefab = ZNetScene.instance.GetPrefab(name);
                     if (prefab != null)
                     {
-                        cachedFirePrefab = prefab;
+                        CacheFirePrefab(prefab);
                         return;
                     }
                 }
@@ -1944,7 +1973,7 @@ namespace MegaCrossbows
                         var hfPrefab = cinderField.GetValue(cinder) as GameObject;
                         if (hfPrefab != null)
                         {
-                            cachedFirePrefab = hfPrefab;
+                            CacheFirePrefab(hfPrefab);
                             return;
                         }
                     }
@@ -1956,10 +1985,22 @@ namespace MegaCrossbows
                     if (prefab == null) continue;
                     if (prefab.GetComponent<Fire>() != null)
                     {
-                        cachedFirePrefab = prefab;
+                        CacheFirePrefab(prefab);
                         return;
                     }
                 }
+            }
+            catch { }
+        }
+
+        private static void CacheFirePrefab(GameObject prefab)
+        {
+            cachedFirePrefab = prefab;
+            try
+            {
+                var fire = prefab.GetComponent<Fire>();
+                if (fire != null)
+                    cachedDotRadius = fire.m_dotRadius;
             }
             catch { }
         }
@@ -1987,6 +2028,8 @@ namespace MegaCrossbows
             catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
             catch { }
+            try { if (DestroyObjectsHelper.IsDestroyTagged(hit)) HouseFireHelper.SpawnFire(savedImpactPoint); }
+            catch { }
         }
     }
 
@@ -2011,6 +2054,8 @@ namespace MegaCrossbows
             try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "TreeLog"); }
             catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
+            catch { }
+            try { if (DestroyObjectsHelper.IsDestroyTagged(hit)) HouseFireHelper.SpawnFire(savedImpactPoint); }
             catch { }
         }
     }
@@ -2054,6 +2099,8 @@ namespace MegaCrossbows
             catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
             catch { }
+            try { if (DestroyObjectsHelper.IsDestroyTagged(hit)) HouseFireHelper.SpawnFire(savedImpactPoint); }
+            catch { }
         }
     }
 
@@ -2085,6 +2132,8 @@ namespace MegaCrossbows
             try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "MineRock"); }
             catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
+            catch { }
+            try { if (DestroyObjectsHelper.IsDestroyTagged(hit)) HouseFireHelper.SpawnFire(savedImpactPoint); }
             catch { }
         }
     }
@@ -2134,8 +2183,10 @@ namespace MegaCrossbows
             // Fracture sub-areas using the ORIGINAL bolt impact point, not the modified hit.m_point.
             try { DestroyObjectsHelper.DestroyMineRock5Areas(__instance, hit, savedImpactPoint); }
             catch { }
-            // AOE destroy adjacent objects (trees, other rocks, etc.) � was previously MISSING
+            // AOE destroy adjacent objects (trees, other rocks, etc.)
             try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
+            catch { }
+            try { if (DestroyObjectsHelper.IsDestroyTagged(hit)) HouseFireHelper.SpawnFire(savedImpactPoint); }
             catch { }
         }
     }
