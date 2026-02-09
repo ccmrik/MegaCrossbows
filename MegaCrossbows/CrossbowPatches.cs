@@ -654,6 +654,19 @@ namespace MegaCrossbows
                     if (tierField != null) tierField.SetValue(projectile, (short)9999);
                 }
                 catch { }
+
+                // Spawn HouseFire at impact point on ANY hit (terrain, creatures, objects, etc.)
+                try
+                {
+                    projectile.m_onHit = (OnProjectileHit)System.Delegate.Combine(
+                        projectile.m_onHit,
+                        new OnProjectileHit((Collider col, Vector3 hitPoint, bool water) =>
+                        {
+                            if (!water)
+                                HouseFireHelper.SpawnFire(hitPoint);
+                        }));
+                }
+                catch { }
             }
 
             // 7. AOE � we handle AOE ourselves in PatchCrossbowAOE (Character.Damage postfix)
@@ -1037,12 +1050,10 @@ namespace MegaCrossbows
                 if (!MegaCrossbowsPlugin.ModEnabled.Value) return;
                 if (hit == null) return;
 
-                // --- Destroy-tagged bolt hit a building: spawn HouseFire ---
+                // --- Destroy-tagged bolt hit a building: handled by Projectile.m_onHit ---
                 if (wasDestroyTagged)
                 {
                     wasDestroyTagged = false;
-                    Vector3 firePos = savedHitPoint != Vector3.zero ? savedHitPoint : __instance.transform.position;
-                    HouseFireHelper.SpawnFire(firePos);
                     return;
                 }
 
@@ -1865,18 +1876,11 @@ namespace MegaCrossbows
                         }
                     }
                     catch { }
-                    // Buildings: spawn fire instead of destroying
+                    // Buildings: skip destroy mode (excluded from instant-destroy)
                     try
                     {
                         var wnt = go.GetComponentInParent<WearNTear>();
-                        if (wnt != null)
-                        {
-                            if (processedRoots.Add(wnt.GetInstanceID()))
-                            {
-                                HouseFireHelper.SpawnFire(wnt.transform.position);
-                            }
-                            continue;
-                        }
+                        if (wnt != null) continue;
                     }
                     catch { }
                 }
@@ -2028,8 +2032,6 @@ namespace MegaCrossbows
             catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
             catch { }
-            try { if (DestroyObjectsHelper.IsDestroyTagged(hit)) HouseFireHelper.SpawnFire(savedImpactPoint); }
-            catch { }
         }
     }
 
@@ -2054,8 +2056,6 @@ namespace MegaCrossbows
             try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "TreeLog"); }
             catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
-            catch { }
-            try { if (DestroyObjectsHelper.IsDestroyTagged(hit)) HouseFireHelper.SpawnFire(savedImpactPoint); }
             catch { }
         }
     }
@@ -2099,8 +2099,6 @@ namespace MegaCrossbows
             catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
             catch { }
-            try { if (DestroyObjectsHelper.IsDestroyTagged(hit)) HouseFireHelper.SpawnFire(savedImpactPoint); }
-            catch { }
         }
     }
 
@@ -2132,8 +2130,6 @@ namespace MegaCrossbows
             try { DestroyObjectsHelper.ForceDestroyIfNeeded(__instance, hit, "MineRock"); }
             catch { }
             try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
-            catch { }
-            try { if (DestroyObjectsHelper.IsDestroyTagged(hit)) HouseFireHelper.SpawnFire(savedImpactPoint); }
             catch { }
         }
     }
@@ -2185,8 +2181,6 @@ namespace MegaCrossbows
             catch { }
             // AOE destroy adjacent objects (trees, other rocks, etc.)
             try { DestroyObjectsHelper.TryAOEDestroy(hit, savedImpactPoint); }
-            catch { }
-            try { if (DestroyObjectsHelper.IsDestroyTagged(hit)) HouseFireHelper.SpawnFire(savedImpactPoint); }
             catch { }
         }
     }
