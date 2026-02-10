@@ -18,7 +18,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "`n? Build successful!" -ForegroundColor Green
 
 $srcDll = "MegaCrossbows\bin\Release\net462\MegaCrossbows.dll"
-$pluginDir = "C:\Users\rikal\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins\MegaCrossbows"
+$pluginDir = "C:\Users\Rik\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\Valheim Min Mods\BepInEx\plugins\MegaCrossbows"
 $pluginPath = Join-Path $pluginDir "MegaCrossbows.dll"
 
 # Ensure plugin directory exists
@@ -49,3 +49,4 @@ Write-Host "  Modified: $($fileInfo.LastWriteTime)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Ready to test in game! Launch Valheim through r2modman." -ForegroundColor Cyan
 Write-Host ""
+
