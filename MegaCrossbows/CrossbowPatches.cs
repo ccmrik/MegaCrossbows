@@ -595,33 +595,54 @@ namespace MegaCrossbows
             float speed = attack.m_projectileVel * (MegaCrossbowsPlugin.Velocity.Value / 100f);
             Vector3 velocity = aimDir * speed;
 
-            // 5. Damage
-            // BaseMultiplier is an overall multiplier applied to ALL damage types.
-            // Individual type multipliers scale off combined weapon+ammo base pierce.
-            //   e.g. black metal bolt (62 pierce) + Arbalest (200 pierce) = 262 base pierce
-            //   with BaseMultiplier=0.5 and Pierce=1: 262 * 1 * 0.5 = 131 final pierce
+            // 5. Damage — Split system
+            // Base pierce (weapon + ammo) is the total damage pool.
+            // It's divided evenly across all ENABLED damage types, then scaled by BaseMultiplier.
+            // e.g. Charred bolt 82 pierce, all 8 types on, mult 2: 2*(82/8) = 20.5 per type.
             HitData hitData = new HitData();
             HitData.DamageTypes weaponDmg = weapon.GetDamage();
             HitData.DamageTypes ammoDmg = default(HitData.DamageTypes);
             if (ammoItem != null)
                 ammoDmg = ammoItem.GetDamage();
 
-            // Combined base pierce (weapon + ammo) used for all type scaling
             float basePierce = weaponDmg.m_pierce + ammoDmg.m_pierce;
             float overallMult = MegaCrossbowsPlugin.DamageMultiplier.Value;
 
-            // Physical damage: basePierce � typeMultiplier � overallMultiplier
-            hitData.m_damage.m_damage = (weaponDmg.m_damage + ammoDmg.m_damage) * overallMult;
-            hitData.m_damage.m_pierce = basePierce * MegaCrossbowsPlugin.DamagePierce.Value * overallMult;
-            hitData.m_damage.m_blunt = basePierce * MegaCrossbowsPlugin.DamageBlunt.Value * overallMult;
-            hitData.m_damage.m_slash = basePierce * MegaCrossbowsPlugin.DamageSlash.Value * overallMult;
+            // Count enabled damage types
+            bool pierce = MegaCrossbowsPlugin.DamagePierce.Value;
+            bool blunt = MegaCrossbowsPlugin.DamageBlunt.Value;
+            bool slash = MegaCrossbowsPlugin.DamageSlash.Value;
+            bool fire = MegaCrossbowsPlugin.DamageFire.Value;
+            bool frost = MegaCrossbowsPlugin.DamageFrost.Value;
+            bool lightning = MegaCrossbowsPlugin.DamageLightning.Value;
+            bool poison = MegaCrossbowsPlugin.DamagePoison.Value;
+            bool spirit = MegaCrossbowsPlugin.DamageSpirit.Value;
 
-            // Elemental damage: basePierce � typeMultiplier � overallMultiplier
-            hitData.m_damage.m_fire = basePierce * MegaCrossbowsPlugin.DamageFire.Value * overallMult;
-            hitData.m_damage.m_frost = basePierce * MegaCrossbowsPlugin.DamageFrost.Value * overallMult;
-            hitData.m_damage.m_lightning = basePierce * MegaCrossbowsPlugin.DamageLightning.Value * overallMult;
-            hitData.m_damage.m_poison = basePierce * MegaCrossbowsPlugin.DamagePoison.Value * overallMult;
-            hitData.m_damage.m_spirit = basePierce * MegaCrossbowsPlugin.DamageSpirit.Value * overallMult;
+            int typeCount = 0;
+            if (pierce) typeCount++;
+            if (blunt) typeCount++;
+            if (slash) typeCount++;
+            if (fire) typeCount++;
+            if (frost) typeCount++;
+            if (lightning) typeCount++;
+            if (poison) typeCount++;
+            if (spirit) typeCount++;
+            if (typeCount == 0) { typeCount = 1; pierce = true; } // fallback: at least pierce
+
+            float perType = basePierce * overallMult / typeCount;
+
+            // Weapon base damage (m_damage) passed through with multiplier only
+            hitData.m_damage.m_damage = (weaponDmg.m_damage + ammoDmg.m_damage) * overallMult;
+
+            // Split damage across enabled types
+            hitData.m_damage.m_pierce = pierce ? perType : 0f;
+            hitData.m_damage.m_blunt = blunt ? perType : 0f;
+            hitData.m_damage.m_slash = slash ? perType : 0f;
+            hitData.m_damage.m_fire = fire ? perType : 0f;
+            hitData.m_damage.m_frost = frost ? perType : 0f;
+            hitData.m_damage.m_lightning = lightning ? perType : 0f;
+            hitData.m_damage.m_poison = poison ? perType : 0f;
+            hitData.m_damage.m_spirit = spirit ? perType : 0f;
 
             hitData.m_damage.m_chop = weaponDmg.m_chop + ammoDmg.m_chop;
             hitData.m_damage.m_pickaxe = weaponDmg.m_pickaxe + ammoDmg.m_pickaxe;

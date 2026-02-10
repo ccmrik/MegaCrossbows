@@ -83,12 +83,14 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 - Blocking/shield stance **blocked** while holding crossbow (`PatchBlockBlocking`)
 - Stamina drain **blocked** for crossbows (`PatchBlockStamina`)
 
-### 2. Damage System
-All damage types are **multipliers of the bolt's base pierce damage**:
-- `0` = none, `0.1` = 10% of base pierce, `1` = equal to base pierce, `10` = 10x base pierce
-- `BaseMultiplier` scales `m_damage` (weapon base damage), not pierce-based
-- `Stagger` scales weapon `m_attackForce` and `m_staggerMultiplier`
+### 2. Damage System — Split Damage
+Base pierce damage (weapon + ammo) is the **total damage pool**, divided evenly across all **enabled** damage types, then scaled by `BaseMultiplier`:
+- Charred bolt (82 pierce), only Pierce enabled: `82 × 1 = 82` pierce
+- All 8 types enabled: `82 / 8 = 10.25` per type
+- With BaseMultiplier=2, all 8 types: `2 × (82/8) = 20.5` per type
+- Total damage always equals `basePierce × BaseMultiplier` regardless of how many types are on
 - **Chop/Pickaxe** passed through from weapon base stats (unless Destroy Objects active)
+- `Stagger` scales weapon `m_attackForce` and `m_staggerMultiplier`
 
 ### 3. Elemental DoT System
 Two-layer approach for reliable DoT:
@@ -180,23 +182,23 @@ Config auto-reloads on save (FileSystemWatcher).
 | `Velocity` | float | `470` | — | Bolt velocity % (470 = ~940 m/s) |
 | `NoGravity` | bool | `true` | — | Disable bolt gravity |
 
-### 4. Damage - Base (multiplier of bolt's base pierce damage)
+### 4. Damage (split damage across enabled types)
 | Key | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `BaseMultiplier` | float | `1` | 0-10 | Overall damage multiplier (scales weapon m_damage) |
-| `Pierce` | float | `1` | 0-10 | Pierce damage multiplier |
-| `Blunt` | float | `0` | 0-10 | Blunt damage (0=none, 1=equal to pierce, 10=10x) |
-| `Slash` | float | `0` | 0-10 | Slash damage (0=none, 1=equal to pierce, 10=10x) |
+| `BaseMultiplier` | float | `1` | 0-10 | Overall damage multiplier (scales total pool) |
+| `Pierce` | bool | `true` | — | Enable pierce damage |
+| `Blunt` | bool | `true` | — | Enable blunt damage |
+| `Slash` | bool | `true` | — | Enable slash damage |
 | `Stagger` | float | `1` | 0-10 | Stagger/knockback multiplier |
 
-### 5. Damage - Elemental (multiplier of bolt's base pierce damage)
+### 5. Damage - Elemental (also split from same pool)
 | Key | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `Fire` | float | `0` | 0-10 | Fire damage multiplier |
-| `Frost` | float | `0` | 0-10 | Frost damage multiplier |
-| `Lightning` | float | `0` | 0-10 | Lightning damage multiplier |
-| `Poison` | float | `0` | 0-10 | Poison damage multiplier |
-| `Spirit` | float | `0` | 0-10 | Spirit damage multiplier |
+| `Fire` | bool | `true` | — | Enable fire damage |
+| `Frost` | bool | `true` | — | Enable frost damage |
+| `Lightning` | bool | `true` | — | Enable lightning damage |
+| `Poison` | bool | `true` | — | Enable poison damage |
+| `Spirit` | bool | `true` | — | Enable spirit damage |
 | `ElementalDoT` | float | `0` | 0-10 | DoT multiplier (0=default Valheim, 10=10x duration+damage) |
 
 ### 6. AOE

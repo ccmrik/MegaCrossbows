@@ -29,19 +29,19 @@ namespace MegaCrossbows
         public static ConfigEntry<float> Velocity;
         public static ConfigEntry<bool> NoGravity;
         
-        // Damage - Base
+        // Damage
         public static ConfigEntry<float> DamageMultiplier;
-        public static ConfigEntry<float> DamageBlunt;
-        public static ConfigEntry<float> DamageSlash;
-        public static ConfigEntry<float> DamagePierce;
+        public static ConfigEntry<bool> DamagePierce;
+        public static ConfigEntry<bool> DamageBlunt;
+        public static ConfigEntry<bool> DamageSlash;
         public static ConfigEntry<float> Stagger;
         
         // Damage - Elemental
-        public static ConfigEntry<float> DamageFire;
-        public static ConfigEntry<float> DamageFrost;
-        public static ConfigEntry<float> DamageLightning;
-        public static ConfigEntry<float> DamagePoison;
-        public static ConfigEntry<float> DamageSpirit;
+        public static ConfigEntry<bool> DamageFire;
+        public static ConfigEntry<bool> DamageFrost;
+        public static ConfigEntry<bool> DamageLightning;
+        public static ConfigEntry<bool> DamagePoison;
+        public static ConfigEntry<bool> DamageSpirit;
         public static ConfigEntry<float> ElementalDoT;
         
         // AOE
@@ -92,29 +92,31 @@ namespace MegaCrossbows
             Velocity = Config.Bind("3. Projectile", "Velocity", 470f, "Bolt velocity multiplier (470 = ~940 m/s, like an M4A1/M16)");
             NoGravity = Config.Bind("3. Projectile", "NoGravity", true, "Disable gravity for bolts (default: true for accuracy)");
             
-            // Damage - Base
-            DamageMultiplier = Config.Bind("4. Damage - Base", "BaseMultiplier", 1f, 
-                new ConfigDescription("Overall damage multiplier (0 = none, 0.1 = 10%, 1 = normal, 10 = 10x)", new AcceptableValueRange<float>(0f, 10f)));
-            DamagePierce = Config.Bind("4. Damage - Base", "Pierce", 1f, 
-                new ConfigDescription("Pierce damage multiplier (0 = none, 0.1 = 10%, 1 = normal, 10 = 10x)", new AcceptableValueRange<float>(0f, 10f)));
-            DamageBlunt = Config.Bind("4. Damage - Base", "Blunt", 0f, 
-                new ConfigDescription("Blunt damage multiplier based on bolt's base pierce (0 = none, 0.1 = 10%, 1 = equal to pierce, 10 = 10x pierce)", new AcceptableValueRange<float>(0f, 10f)));
-            DamageSlash = Config.Bind("4. Damage - Base", "Slash", 0f, 
-                new ConfigDescription("Slash damage multiplier based on bolt's base pierce (0 = none, 0.1 = 10%, 1 = equal to pierce, 10 = 10x pierce)", new AcceptableValueRange<float>(0f, 10f)));
-            Stagger = Config.Bind("4. Damage - Base", "Stagger", 1f, 
-                new ConfigDescription("Stagger/knockback multiplier (0 = none, 0.1 = 10%, 1 = normal, 10 = 10x)", new AcceptableValueRange<float>(0f, 10f)));
+            // Damage - Split system: base pierce is divided evenly across all enabled types
+            // BaseMultiplier scales the total. e.g. Charred bolt (82 pierce) with all 8 types enabled:
+            //   82 / 8 = 10.25 per type. With BaseMultiplier=2: 164 / 8 = 20.5 per type.
+            DamageMultiplier = Config.Bind("4. Damage", "BaseMultiplier", 1f, 
+                new ConfigDescription("Overall damage multiplier (1 = normal, 2 = double total damage, 10 = 10x)", new AcceptableValueRange<float>(0f, 10f)));
+            DamagePierce = Config.Bind("4. Damage", "Pierce", true,
+                "Enable pierce damage (always counts toward the split)");
+            DamageBlunt = Config.Bind("4. Damage", "Blunt", true,
+                "Enable blunt damage (splits total damage across more types)");
+            DamageSlash = Config.Bind("4. Damage", "Slash", true,
+                "Enable slash damage (splits total damage across more types)");
+            Stagger = Config.Bind("4. Damage", "Stagger", 1f, 
+                new ConfigDescription("Stagger/knockback multiplier (0 = none, 1 = normal, 10 = 10x)", new AcceptableValueRange<float>(0f, 10f)));
             
-            // Damage - Elemental (multiplier of bolt's base pierce: 0=none, 0.1=10%, 1=equal to pierce, 10=10x)
-            DamageFire = Config.Bind("5. Damage - Elemental", "Fire", 0f, 
-                new ConfigDescription("Fire damage multiplier based on bolt's base pierce (0 = none, 0.1 = 10%, 1 = equal to pierce, 10 = 10x)", new AcceptableValueRange<float>(0f, 10f)));
-            DamageFrost = Config.Bind("5. Damage - Elemental", "Frost", 0f, 
-                new ConfigDescription("Frost damage multiplier based on bolt's base pierce (0 = none, 0.1 = 10%, 1 = equal to pierce, 10 = 10x)", new AcceptableValueRange<float>(0f, 10f)));
-            DamageLightning = Config.Bind("5. Damage - Elemental", "Lightning", 0f, 
-                new ConfigDescription("Lightning damage multiplier based on bolt's base pierce (0 = none, 0.1 = 10%, 1 = equal to pierce, 10 = 10x)", new AcceptableValueRange<float>(0f, 10f)));
-            DamagePoison = Config.Bind("5. Damage - Elemental", "Poison", 0f, 
-                new ConfigDescription("Poison damage multiplier based on bolt's base pierce (0 = none, 0.1 = 10%, 1 = equal to pierce, 10 = 10x)", new AcceptableValueRange<float>(0f, 10f)));
-            DamageSpirit = Config.Bind("5. Damage - Elemental", "Spirit", 0f, 
-                new ConfigDescription("Spirit damage multiplier based on bolt's base pierce (0 = none, 0.1 = 10%, 1 = equal to pierce, 10 = 10x)", new AcceptableValueRange<float>(0f, 10f)));
+            // Elemental types also split from the same pool
+            DamageFire = Config.Bind("5. Damage - Elemental", "Fire", true,
+                "Enable fire damage (splits total damage across more types)");
+            DamageFrost = Config.Bind("5. Damage - Elemental", "Frost", true,
+                "Enable frost damage (splits total damage across more types)");
+            DamageLightning = Config.Bind("5. Damage - Elemental", "Lightning", true,
+                "Enable lightning damage (splits total damage across more types)");
+            DamagePoison = Config.Bind("5. Damage - Elemental", "Poison", true,
+                "Enable poison damage (splits total damage across more types)");
+            DamageSpirit = Config.Bind("5. Damage - Elemental", "Spirit", true,
+                "Enable spirit damage (splits total damage across more types)");
             ElementalDoT = Config.Bind("5. Damage - Elemental", "ElementalDoT", 0f, 
                 new ConfigDescription("Elemental damage over time multiplier (0 = none, 1 = normal, 10 = 10x stronger DoT)", new AcceptableValueRange<float>(0f, 10f)));
             
