@@ -655,7 +655,7 @@ namespace MegaCrossbows
                 }
                 catch { }
 
-                // Spawn HouseFire + Staff of Embers explosion at impact point on ANY hit
+                // Spawn HouseFire at impact point on ANY hit
                 try
                 {
                     projectile.m_onHit = (OnProjectileHit)System.Delegate.Combine(
@@ -665,7 +665,6 @@ namespace MegaCrossbows
                             if (!water)
                             {
                                 HouseFireHelper.SpawnFire(hitPoint);
-                                EmberExplosionHelper.SpawnExplosion(hitPoint, player);
                             }
                         }));
                 }
