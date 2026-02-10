@@ -1245,8 +1245,8 @@ namespace MegaCrossbows
 
                 isApplyingAOE = true;
 
-                // OverlapSphere at the IMPACT POINT, not the bolt's position
-                int layerMask = ~(LayerMask.GetMask("UI", "character_trigger", "viewblock"));
+                // OverlapSphere at the IMPACT POINT — only check character layers
+                int layerMask = LayerMask.GetMask("character", "character_net", "character_ghost", "character_noenv");
                 Collider[] nearby = Physics.OverlapSphere(impactPoint, radius, layerMask);
 
                 Character attacker = hit.GetAttacker();
@@ -1261,12 +1261,13 @@ namespace MegaCrossbows
                     if (character == null) continue;
                     if (!alreadyHit.Add(character.GetInstanceID())) continue;
 
-                    // Build splash damage from the original hit
+                    // Build splash damage from the original hit — use a different skill
+                    // to prevent the AOE/DoT postfixes from running again on splash targets
                     HitData splashHit = new HitData();
                     splashHit.m_damage = hit.m_damage;
                     splashHit.m_point = character.GetCenterPoint();
                     splashHit.m_dir = (character.transform.position - impactPoint).normalized;
-                    splashHit.m_skill = hit.m_skill;
+                    splashHit.m_skill = Skills.SkillType.None; // NOT Crossbows — prevents re-triggering AOE/DoT
                     try { splashHit.m_pushForce = hit.m_pushForce; } catch { }
                     try { splashHit.m_staggerMultiplier = hit.m_staggerMultiplier; } catch { }
                     try { splashHit.SetAttacker(attacker); } catch { }
