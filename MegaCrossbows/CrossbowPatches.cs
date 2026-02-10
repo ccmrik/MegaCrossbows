@@ -2063,7 +2063,10 @@ namespace MegaCrossbows
                 if (ObjectDB.instance == null) return;
 
                 // Try known staff item names — the Staff of Embers projectile contains the Aoe prefab
-                string[] knownNames = { "StaffFireball", "StaffEmbers", "staff_embers", "Staff_embers" };
+                string[] knownNames = {
+                    "StaffFireball", "StaffEmbers", "staff_embers", "Staff_embers",
+                    "StaffFireBolt", "StaffFire", "Staff_fireball", "StaffRedFireball"
+                };
                 foreach (var name in knownNames)
                 {
                     var aoePrefab = TryGetAoeFromItem(name);
@@ -2074,23 +2077,19 @@ namespace MegaCrossbows
                     }
                 }
 
-                // Fallback: search all items for one with "staff" and "fire" in its name
+                // Search all items for any staff/magic weapon whose projectile spawns a fire-only Aoe
                 foreach (var itemGo in ObjectDB.instance.m_items)
                 {
                     if (itemGo == null) continue;
-                    var lowerName = itemGo.name.ToLowerInvariant();
-                    if (lowerName.Contains("staff") && (lowerName.Contains("fire") || lowerName.Contains("ember")))
+                    var aoePrefab = TryGetAoeFromItemObject(itemGo);
+                    if (aoePrefab != null && IsFireOnlyAoe(aoePrefab))
                     {
-                        var aoePrefab = TryGetAoeFromItemObject(itemGo);
-                        if (aoePrefab != null)
-                        {
-                            cachedAoePrefab = aoePrefab;
-                            return;
-                        }
+                        cachedAoePrefab = aoePrefab;
+                        return;
                     }
                 }
 
-                // Last resort: search ZNetScene prefabs for any projectile with an Aoe m_spawnOnHit
+                // Last resort: search ZNetScene for any projectile with a fire-only Aoe m_spawnOnHit
                 if (ZNetScene.instance != null)
                 {
                     foreach (var prefab in ZNetScene.instance.m_prefabs)
@@ -2098,8 +2097,7 @@ namespace MegaCrossbows
                         if (prefab == null) continue;
                         var proj = prefab.GetComponent<Projectile>();
                         if (proj == null || proj.m_spawnOnHit == null) continue;
-                        var aoe = proj.m_spawnOnHit.GetComponent<Aoe>();
-                        if (aoe != null && aoe.m_damage.m_fire > 0f)
+                        if (IsFireOnlyAoe(proj.m_spawnOnHit))
                         {
                             cachedAoePrefab = proj.m_spawnOnHit;
                             return;
@@ -2108,6 +2106,25 @@ namespace MegaCrossbows
                 }
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Returns true if the prefab has an Aoe with fire damage but NO poison/spirit damage.
+        /// This filters out poison/spirit staff explosions (the green effect).
+        /// </summary>
+        private static bool IsFireOnlyAoe(GameObject prefab)
+        {
+            try
+            {
+                var aoe = prefab.GetComponent<Aoe>();
+                if (aoe == null) return false;
+                if (aoe.m_damage.m_fire <= 0f) return false;
+                // Reject if it has poison or spirit damage (wrong staff)
+                if (aoe.m_damage.m_poison > 0f) return false;
+                if (aoe.m_damage.m_spirit > 0f) return false;
+                return true;
+            }
+            catch { return false; }
         }
 
         private static GameObject TryGetAoeFromItem(string itemName)
