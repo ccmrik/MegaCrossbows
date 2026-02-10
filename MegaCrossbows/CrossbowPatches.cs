@@ -2060,24 +2060,35 @@ namespace MegaCrossbows
             searchDone = true;
             try
             {
-                if (ObjectDB.instance == null) return;
-
-                // Try known staff item names — the Staff of Embers projectile contains the Aoe prefab
-                string[] knownNames = {
-                    "StaffFireball", "StaffEmbers", "staff_embers", "Staff_embers",
-                    "StaffFireBolt", "StaffFire", "Staff_fireball", "StaffRedFireball"
-                };
-                foreach (var name in knownNames)
+                // FASTEST: try the exact Aoe prefab name directly from ZNetScene
+                if (ZNetScene.instance != null)
                 {
-                    var aoePrefab = TryGetAoeFromItem(name);
-                    if (aoePrefab != null)
+                    string[] aoePrefabNames = {
+                        "StaffFire_clusterbomb_aoe",
+                        "StaffFire_clusterbomb"
+                    };
+                    foreach (var name in aoePrefabNames)
                     {
-                        cachedAoePrefab = aoePrefab;
-                        return;
+                        var prefab = ZNetScene.instance.GetPrefab(name);
+                        if (prefab != null && prefab.GetComponent<Aoe>() != null)
+                        {
+                            cachedAoePrefab = prefab;
+                            return;
+                        }
                     }
                 }
 
-                // Search all items for any staff/magic weapon whose projectile spawns a fire-only Aoe
+                if (ObjectDB.instance == null) return;
+
+                // Try the known item name and chain: item -> projectile -> m_spawnOnHit
+                var aoeFromItem = TryGetAoeFromItem("StaffFireball");
+                if (aoeFromItem != null)
+                {
+                    cachedAoePrefab = aoeFromItem;
+                    return;
+                }
+
+                // Search all items for any weapon whose projectile spawns a fire-only Aoe
                 foreach (var itemGo in ObjectDB.instance.m_items)
                 {
                     if (itemGo == null) continue;
