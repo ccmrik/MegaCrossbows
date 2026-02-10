@@ -165,7 +165,7 @@ Config auto-reloads on save (FileSystemWatcher).
 | Key | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `Enabled` | bool | `true` | — | Master on/off |
-| `DestroyObjects` | bool | `false` | — | Bolts instantly destroy trees, rocks, deposits (must hold modifier key) |
+| `DestroyObjects` | bool | `true` | — | Bolts instantly destroy trees, rocks, deposits (must hold modifier key) |
 | `DestroyObjectsKey` | KeyCode | `LeftAlt` | — | Modifier key to hold while firing for object destruction |
 | `FireRate` | float | `10` | 1-10 | Shots per second |
 | `MagazineCapacity` | int | `1000` | — | Rounds before reload |
@@ -189,7 +189,7 @@ Config auto-reloads on save (FileSystemWatcher).
 | `Pierce` | bool | `true` | — | Enable pierce damage |
 | `Blunt` | bool | `true` | — | Enable blunt damage |
 | `Slash` | bool | `true` | — | Enable slash damage |
-| `Stagger` | float | `1` | 0-10 | Stagger/knockback multiplier |
+| `Stagger` | float | `0` | 0-10 | Stagger/knockback multiplier |
 
 ### 5. Damage - Elemental (also split from same pool)
 | Key | Type | Default | Range | Description |

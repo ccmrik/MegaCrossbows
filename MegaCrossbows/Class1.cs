@@ -75,7 +75,7 @@ namespace MegaCrossbows
 
             // General
             ModEnabled = Config.Bind("1. General", "Enabled", true, "Enable or disable the mod");
-            DestroyObjects = Config.Bind("1. General", "DestroyObjects", false,
+            DestroyObjects = Config.Bind("1. General", "DestroyObjects", true,
                 "Bolts instantly destroy resource objects: trees, logs, rocks, copper, tin, silver, obsidian, flametal, and other mineable/choppable objects (must hold modifier key while firing)");
             DestroyObjectsKey = Config.Bind("1. General", "DestroyObjectsKey", KeyCode.LeftAlt,
                 "Hold this key while firing to destroy objects (only when DestroyObjects is enabled)");
@@ -103,7 +103,7 @@ namespace MegaCrossbows
                 "Enable blunt damage (splits total damage across more types)");
             DamageSlash = Config.Bind("4. Damage", "Slash", true,
                 "Enable slash damage (splits total damage across more types)");
-            Stagger = Config.Bind("4. Damage", "Stagger", 1f, 
+            Stagger = Config.Bind("4. Damage", "Stagger", 0f, 
                 new ConfigDescription("Stagger/knockback multiplier (0 = none, 1 = normal, 10 = 10x)", new AcceptableValueRange<float>(0f, 10f)));
             
             // Elemental types also split from the same pool
