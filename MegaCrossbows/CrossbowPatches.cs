@@ -228,6 +228,30 @@ namespace MegaCrossbows
     }
 
     // =========================================================================
+    // SUPPRESS ZLog.Log SPAM from game code (SE_Poison, Fire, etc).
+    // At high fire rates with all damage types enabled, Valheim's own
+    // ZLog.Log calls flood the log with string allocations causing crashes.
+    // =========================================================================
+    [HarmonyPatch(typeof(ZLog), "Log")]
+    public static class PatchSuppressPoisonLog
+    {
+        public static bool Prefix(object o)
+        {
+            try
+            {
+                if (!MegaCrossbowsPlugin.ModEnabled.Value) return true;
+                var player = Player.m_localPlayer;
+                if (player == null) return true;
+                var weapon = player.GetCurrentWeapon();
+                if (weapon != null && CrossbowHelper.IsCrossbow(weapon))
+                    return false; // suppress ALL ZLog.Log while crossbow is equipped
+            }
+            catch { }
+            return true;
+        }
+    }
+
+    // =========================================================================
     // MAIN MOD LOGIC - Player.Update postfix (VERIFIED)
     // =========================================================================
     [HarmonyPatch(typeof(Player), "Update")]
@@ -419,7 +443,7 @@ namespace MegaCrossbows
                 }
                 else
                 {
-                    float interval = 1f / MegaCrossbowsPlugin.FireRate.Value;
+                    float interval = 1f / MegaCrossbowsPlugin.GetEffectiveFireRate();
                     if (Time.time - lastFireTime >= interval)
                     {
                         // Additive timing to prevent drift, cap to prevent burst after pause
@@ -592,7 +616,7 @@ namespace MegaCrossbows
 
             // 4. Velocity
             var attack = weapon.m_shared.m_attack;
-            float speed = attack.m_projectileVel * (MegaCrossbowsPlugin.Velocity.Value / 100f);
+            float speed = attack.m_projectileVel * (MegaCrossbowsPlugin.GetEffectiveVelocity() / 100f);
             Vector3 velocity = aimDir * speed;
 
             // 5. Damage — Split system
@@ -755,7 +779,7 @@ namespace MegaCrossbows
                 if (cachedAnimator == null)
                     cachedAnimator = player.GetComponentInChildren<Animator>();
 
-                float fireRate = MegaCrossbowsPlugin.FireRate.Value;
+                float fireRate = MegaCrossbowsPlugin.GetEffectiveFireRate();
 
                 if (cachedAnimator != null)
                 {

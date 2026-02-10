@@ -167,7 +167,8 @@ Config auto-reloads on save (FileSystemWatcher).
 | `Enabled` | bool | `true` | — | Master on/off |
 | `DestroyObjects` | bool | `true` | — | Bolts instantly destroy trees, rocks, deposits (must hold modifier key) |
 | `DestroyObjectsKey` | KeyCode | `LeftAlt` | — | Modifier key to hold while firing for object destruction |
-| `FireRate` | float | `10` | 1-10 | Shots per second |
+| `WeaponProfile` | string | `Custom` | See list | Weapon preset — sets fire rate + velocity (Custom = use manual values) |
+| `FireRate` | float | `10` | 1-100 | Shots per second (only used when WeaponProfile = Custom) |
 | `MagazineCapacity` | int | `1000` | — | Rounds before reload |
 
 ### 2. Zoom
@@ -234,6 +235,7 @@ Config auto-reloads on save (FileSystemWatcher).
 | `PatchBlockBlocking` | `Humanoid.BlockAttack` / `IsBlocking` | Prefix | Right-click = zoom |
 | `PatchDurability` | `ItemDrop.ItemData.GetMaxDurability` / `GetDurabilityPercentage` | Prefix | Indestructible crossbows |
 | `PatchSuppressDamageText` | `DamageText.AddInworldText` | Prefix | Suppress damage number spam |
+| `PatchSuppressPoisonLog` | `ZLog.Log` | Prefix | Suppress ALL ZLog while crossbow equipped (prevents crash from poison/fire log flood) |
 | `PatchPlayerUpdate` | `Player.Update` | Postfix | Main logic (fire, zoom, HUD) |
 | `PatchBuildingDamage` | `WearNTear.Damage` | Prefix+Postfix | Building damage/fire, HouseFire on ALT-mode |
 | `PatchCrossbowAOE` | `Character.Damage` | Postfix | AOE splash from impact point |
