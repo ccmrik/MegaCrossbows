@@ -110,8 +110,9 @@ Two-layer approach for reliable DoT:
 - When ALT-mode bolt hits ANYTHING (terrain, creatures, buildings, trees, rocks, grass), spawns Valheim's native `Fire` at impact point
 - Implemented via `Projectile.m_onHit` callback attached in `FireBolt` — fires on every hit type including bare ground
 - Forces `m_burnable = true` on nearby `WearNTear` pieces so stone, black marble, and grausten burn
+- All Fire properties configurable: damage, radius, tick interval, spread, smoke die chance, max smoke
 - Prefab found at runtime: tries known names, then searches `Cinder.m_houseFirePrefab`, then any prefab with `Fire` component
-- Cached after first lookup
+- Cached after first lookup; config values applied per-instance at spawn time
 
 ### 6. Bolt Stack Size (`PatchBoltStackSize` on `ObjectDB.Awake`)
 - Sets `m_maxStackSize = 1000` for all bolt items
@@ -209,6 +210,16 @@ Config auto-reloads on save (FileSystemWatcher).
 | `BuildingDamageMultiplier` | float | `1` | 1-10 | Building damage multiplier |
 | `BuildingFireDamage` | float | `0` | 0-10 | Ashlands fire behavior |
 | `BuildingFireDuration` | float | `1` | 1-10 | Burn duration multiplier |
+
+### 8. HouseFire (ALT-mode fire on impact)
+| Key | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `FireDamage` | float | `10` | 1-100 | Fire damage per tick |
+| `DotRadius` | float | `1` | 1-10 | Radius of fire damage sphere |
+| `TickInterval` | float | `1` | 0.1-5 | Seconds between damage ticks (lower = faster) |
+| `Spread` | int | `4` | 1-20 | Max fires allowed nearby (higher = more spread) |
+| `SmokeDieChance` | float | `0.5` | 0-1 | Chance fire dies when suffocated (0 = immortal) |
+| `MaxSmoke` | float | `3` | 1-50 | Smoke tolerance before fire can die |
 
 ---
 

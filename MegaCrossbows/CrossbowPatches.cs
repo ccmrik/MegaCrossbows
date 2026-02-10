@@ -1916,7 +1916,19 @@ namespace MegaCrossbows
                 if (!searchDone) FindFirePrefab();
                 if (cachedFirePrefab == null) return;
 
-                UnityEngine.Object.Instantiate(cachedFirePrefab, position + Vector3.up * 0.1f, Quaternion.identity);
+                var go = UnityEngine.Object.Instantiate(cachedFirePrefab, position + Vector3.up * 0.1f, Quaternion.identity);
+
+                // Apply HouseFire config to the spawned Fire instance
+                var fire = go.GetComponent<Fire>();
+                if (fire != null)
+                {
+                    fire.m_fireDamage = MegaCrossbowsPlugin.HouseFireDamage.Value;
+                    fire.m_dotRadius = MegaCrossbowsPlugin.HouseFireRadius.Value;
+                    fire.m_dotInterval = MegaCrossbowsPlugin.HouseFireTickInterval.Value;
+                    fire.m_spread = MegaCrossbowsPlugin.HouseFireSpread.Value;
+                    fire.m_smokeDieChance = MegaCrossbowsPlugin.HouseFireSmokeDieChance.Value;
+                    fire.m_maxSmoke = MegaCrossbowsPlugin.HouseFireMaxSmoke.Value;
+                }
 
                 // Force m_burnable=true on nearby building pieces so Fire.Dot()
                 // damages stone, black marble, grausten, etc.
@@ -1929,7 +1941,7 @@ namespace MegaCrossbows
         {
             try
             {
-                float radius = Mathf.Max(cachedDotRadius, MegaCrossbowsPlugin.AoeRadius.Value);
+                float radius = Mathf.Max(MegaCrossbowsPlugin.HouseFireRadius.Value, MegaCrossbowsPlugin.AoeRadius.Value);
                 int pieceMask = LayerMask.GetMask("piece", "piece_nonsolid");
                 Collider[] nearby = Physics.OverlapSphere(position, radius, pieceMask);
 
