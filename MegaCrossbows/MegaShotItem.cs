@@ -59,7 +59,6 @@ namespace MegaCrossbows
         private static CraftingStation cachedWorkbench;
         private static CraftingStation cachedForge;
         private static CraftingStation cachedBlackForge;
-        private static bool stationsCached = false;
 
         public static bool IsMegaShot(ItemDrop.ItemData item)
         {
@@ -77,12 +76,38 @@ namespace MegaCrossbows
         {
             if (objectDB == null || objectDB.m_items == null) return;
 
-            // Check if already registered in this ObjectDB instance
+            // Check if prefab already exists (ObjectDB.Awake can be called multiple times)
+            bool alreadyInObjectDB = false;
             foreach (var item in objectDB.m_items)
             {
-                if (item != null && item.name == PrefabName) return;
+                if (item != null && item.name == PrefabName)
+                {
+                    megaShotPrefab = item;
+                    alreadyInObjectDB = true;
+                    break;
+                }
             }
 
+            if (!alreadyInObjectDB)
+            {
+                CreatePrefab(objectDB);
+                if (megaShotPrefab == null) return;
+            }
+
+            // Always attempt ZNetScene registration (may only succeed on later calls
+            // when ZNetScene.instance is available)
+            TryRegisterZNetScene();
+
+            // Cache crafting stations (may find more on later calls)
+            CacheStations(objectDB);
+
+            // Create recipe if not yet done
+            if (megaShotRecipe == null)
+                CreateRecipe(objectDB);
+        }
+
+        private static void CreatePrefab(ObjectDB objectDB)
+        {
             try
             {
                 // Find CrossbowRipper prefab
@@ -98,8 +123,8 @@ namespace MegaCrossbows
                 }
                 if (ripperPrefab == null) return;
 
-                // Clone: deactivate source first to prevent ZNetView.Awake() from
-                // registering a live ZDO on the clone (causes NullRef in ZNetScene.RemoveObjects)
+                // Clone: deactivate source before Instantiate() to prevent
+                // ZNetView.Awake() from registering a live ZDO on the clone.
                 bool wasActive = ripperPrefab.activeSelf;
                 ripperPrefab.SetActive(false);
                 megaShotPrefab = UnityEngine.Object.Instantiate(ripperPrefab);
@@ -126,6 +151,27 @@ namespace MegaCrossbows
                 shared.m_damages = baseDmg;
                 shared.m_damagesPerLevel = new HitData.DamageTypes();
 
+                // Activate the clone — REQUIRED for Valheim to read item data,
+                // show the recipe in crafting GUI, and spawn functional instances.
+                // ZNetView.Awake() fires here; if ZNetScene.instance exists it
+                // registers a live ZDO which we must clean up immediately.
+                megaShotPrefab.SetActive(true);
+
+                // Clean up any ZDO that ZNetView.Awake() created on our template.
+                // Templates must NOT have a live ZDO — only spawned instances should.
+                try
+                {
+                    var nview = megaShotPrefab.GetComponent<ZNetView>();
+                    if (nview != null && nview.GetZDO() != null)
+                    {
+                        var zdoField = typeof(ZNetView).GetField("m_zdo",
+                            BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (zdoField != null)
+                            zdoField.SetValue(nview, null);
+                    }
+                }
+                catch { }
+
                 // Register in ObjectDB
                 objectDB.m_items.Add(megaShotPrefab);
 
@@ -142,33 +188,28 @@ namespace MegaCrossbows
                     }
                 }
                 catch { }
+            }
+            catch { }
+        }
 
-                // Register in ZNetScene's hash lookup ONLY (not m_prefabs list).
-                // Adding to m_prefabs causes NullRef in ZNetScene.RemoveObjects.
-                try
+        private static void TryRegisterZNetScene()
+        {
+            if (megaShotPrefab == null) return;
+            try
+            {
+                if (ZNetScene.instance == null) return;
+
+                var hash = megaShotPrefab.name.GetStableHashCode();
+                var namedField = typeof(ZNetScene).GetField("m_namedPrefabs",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (namedField != null)
                 {
-                    if (ZNetScene.instance != null)
+                    var dict = namedField.GetValue(ZNetScene.instance) as Dictionary<int, GameObject>;
+                    if (dict != null && !dict.ContainsKey(hash))
                     {
-                        var hash = megaShotPrefab.name.GetStableHashCode();
-                        var namedField = typeof(ZNetScene).GetField("m_namedPrefabs",
-                            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (namedField != null)
-                        {
-                            var dict = namedField.GetValue(ZNetScene.instance) as Dictionary<int, GameObject>;
-                            if (dict != null && !dict.ContainsKey(hash))
-                            {
-                                dict[hash] = megaShotPrefab;
-                            }
-                        }
+                        dict[hash] = megaShotPrefab;
                     }
                 }
-                catch { }
-
-                // Cache crafting stations from existing recipes
-                CacheStations(objectDB);
-
-                // Create recipe
-                CreateRecipe(objectDB);
             }
             catch { }
         }
@@ -179,8 +220,9 @@ namespace MegaCrossbows
         /// </summary>
         private static void CacheStations(ObjectDB objectDB)
         {
-            if (stationsCached) return;
-            stationsCached = true;
+            // Retry until all three stations are found (may take multiple ObjectDB.Awake calls)
+            if (cachedWorkbench != null && cachedForge != null && cachedBlackForge != null)
+                return;
 
             try
             {
