@@ -81,6 +81,7 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 - **Only the MegaShot crossbow** gets all mod features (rapid fire, damage split, zoom, etc.)
 - **All other crossbows** (Ripper, Arbalest, etc.) function with vanilla Valheim behavior
 - Cloned from `CrossbowRipper` prefab at runtime in `ObjectDB.Awake`
+- **Clone safety**: source deactivated before `Instantiate()` to prevent `ZNetView.Awake()` from registering a live ZDO. Only added to `m_namedPrefabs` dict (NOT `m_prefabs` list) to avoid NullRef in `ZNetScene.RemoveObjects`.
 - Registered in ObjectDB + ZNetScene (via reflection for private fields)
 - **8 quality levels** (vanilla max is 4) with `m_maxQuality = 8`
 - **Per-level damage** (non-linear): 31, 41, 31, 51, 61, 71, 81, 91 pierce
@@ -94,9 +95,13 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
   - Level 6: 5 Yggdrasil Wood, 5 Carapace, 5 Black Marble
   - Level 7: 5 Ashwood, 5 Asksvin Hide, 5 Flametal
   - Level 8: 5 Surtling Core, 5 Black Core, 5 Molten Core
-- Recipe ingredients dynamically swapped in `Player.Update` based on target upgrade quality
+- **Per-level crafting stations** (dynamically swapped with ingredients):
+  - Level 1-2: Workbench (level 1, 2)
+  - Level 3-5: Forge (level 1, 2, 3)
+  - Level 6-8: Black Forge (level 1, 2, 3)
+- Stations found by scanning existing recipes for keyword matches (`workbench`, `forge`, `blackforge`)
+- Recipe ingredients + station dynamically swapped in `Player.Update` based on target upgrade quality
 - 3x backstab bonus at all levels
-- Crafting station cloned from Ripper's recipe
 - `CrossbowHelper.IsCrossbow()` now delegates to `MegaShotItem.IsMegaShot()`
 - Detection: `item.m_shared.m_name == "MegaShot"` (literal string, not localized)
 

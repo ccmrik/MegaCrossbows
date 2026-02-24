@@ -37,6 +37,30 @@ namespace MegaCrossbows
         };
         private const int IngredientAmount = 5;
 
+        // Per-level crafting station: (stationKeyword, minStationLevel)
+        // Keyword is matched against recipe crafting station names in ObjectDB
+        private static readonly string[] StationKeywords = new string[]
+        {
+            "workbench",   // Level 1
+            "workbench",   // Level 2
+            "forge",       // Level 3
+            "forge",       // Level 4
+            "forge",       // Level 5
+            "blackforge",  // Level 6
+            "blackforge",  // Level 7
+            "blackforge",  // Level 8
+        };
+        private static readonly int[] StationLevels = new int[]
+        {
+            1, 2, 1, 2, 3, 1, 2, 3
+        };
+
+        // Cached crafting station references (found from existing recipes)
+        private static CraftingStation cachedWorkbench;
+        private static CraftingStation cachedForge;
+        private static CraftingStation cachedBlackForge;
+        private static bool stationsCached = false;
+
         public static bool IsMegaShot(ItemDrop.ItemData item)
         {
             if (item == null || item.m_shared == null) return false;
@@ -74,11 +98,14 @@ namespace MegaCrossbows
                 }
                 if (ripperPrefab == null) return;
 
-                // Clone it
+                // Clone: deactivate source first to prevent ZNetView.Awake() from
+                // registering a live ZDO on the clone (causes NullRef in ZNetScene.RemoveObjects)
+                bool wasActive = ripperPrefab.activeSelf;
+                ripperPrefab.SetActive(false);
                 megaShotPrefab = UnityEngine.Object.Instantiate(ripperPrefab);
+                ripperPrefab.SetActive(wasActive);
                 megaShotPrefab.name = PrefabName;
                 UnityEngine.Object.DontDestroyOnLoad(megaShotPrefab);
-                megaShotPrefab.SetActive(false);
 
                 // Modify item properties
                 var itemDrop = megaShotPrefab.GetComponent<ItemDrop>();
@@ -116,7 +143,8 @@ namespace MegaCrossbows
                 }
                 catch { }
 
-                // Register in ZNetScene if available (use reflection — field may not be public)
+                // Register in ZNetScene's hash lookup ONLY (not m_prefabs list).
+                // Adding to m_prefabs causes NullRef in ZNetScene.RemoveObjects.
                 try
                 {
                     if (ZNetScene.instance != null)
@@ -132,56 +160,72 @@ namespace MegaCrossbows
                                 dict[hash] = megaShotPrefab;
                             }
                         }
-                        var prefabsField = typeof(ZNetScene).GetField("m_prefabs",
-                            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (prefabsField != null)
-                        {
-                            var list = prefabsField.GetValue(ZNetScene.instance) as List<GameObject>;
-                            if (list != null && !list.Contains(megaShotPrefab))
-                                list.Add(megaShotPrefab);
-                        }
                     }
                 }
                 catch { }
 
+                // Cache crafting stations from existing recipes
+                CacheStations(objectDB);
+
                 // Create recipe
-                CreateRecipe(objectDB, ripperPrefab);
+                CreateRecipe(objectDB);
             }
             catch { }
         }
 
-        private static void CreateRecipe(ObjectDB objectDB, GameObject ripperPrefab)
+        /// <summary>
+        /// Scans existing recipes in ObjectDB to find crafting station references
+        /// (Workbench, Forge, Black Forge) by matching station GameObject names.
+        /// </summary>
+        private static void CacheStations(ObjectDB objectDB)
+        {
+            if (stationsCached) return;
+            stationsCached = true;
+
+            try
+            {
+                if (objectDB.m_recipes == null) return;
+
+                foreach (var r in objectDB.m_recipes)
+                {
+                    if (r == null || r.m_craftingStation == null) continue;
+                    string stationName = r.m_craftingStation.gameObject.name.ToLower();
+
+                    if (cachedWorkbench == null && stationName.Contains("workbench"))
+                        cachedWorkbench = r.m_craftingStation;
+                    if (cachedForge == null && stationName == "forge")
+                        cachedForge = r.m_craftingStation;
+                    if (cachedBlackForge == null && stationName.Contains("blackforge"))
+                        cachedBlackForge = r.m_craftingStation;
+
+                    if (cachedWorkbench != null && cachedForge != null && cachedBlackForge != null)
+                        break;
+                }
+            }
+            catch { }
+        }
+
+        private static CraftingStation GetStationForLevel(int level)
+        {
+            if (level < 1 || level > 8) return cachedWorkbench;
+            string keyword = StationKeywords[level - 1];
+            if (keyword == "blackforge" && cachedBlackForge != null) return cachedBlackForge;
+            if (keyword == "forge" && cachedForge != null) return cachedForge;
+            return cachedWorkbench;
+        }
+
+        private static void CreateRecipe(ObjectDB objectDB)
         {
             try
             {
-                // Find the Ripper's recipe to clone crafting station settings
-                CraftingStation craftStation = null;
-                CraftingStation repairStation = null;
-                int minStationLevel = 1;
-
-                if (objectDB.m_recipes != null)
-                {
-                    foreach (var r in objectDB.m_recipes)
-                    {
-                        if (r == null || r.m_item == null) continue;
-                        if (r.m_item.gameObject.name == "CrossbowRipper")
-                        {
-                            craftStation = r.m_craftingStation;
-                            repairStation = r.m_repairStation;
-                            minStationLevel = r.m_minStationLevel;
-                            break;
-                        }
-                    }
-                }
-
                 megaShotRecipe = ScriptableObject.CreateInstance<Recipe>();
                 megaShotRecipe.name = "Recipe_MegaShot";
                 megaShotRecipe.m_item = megaShotPrefab.GetComponent<ItemDrop>();
                 megaShotRecipe.m_amount = 1;
                 megaShotRecipe.m_enabled = true;
-                megaShotRecipe.m_craftingStation = craftStation;
-                megaShotRecipe.m_repairStation = repairStation;
-                megaShotRecipe.m_minStationLevel = minStationLevel;
+                megaShotRecipe.m_craftingStation = GetStationForLevel(1);
+                megaShotRecipe.m_repairStation = cachedWorkbench;
+                megaShotRecipe.m_minStationLevel = StationLevels[0];
 
                 // Set initial resources for level 1
                 SetRecipeResources(objectDB, 1);
@@ -218,6 +262,11 @@ namespace MegaCrossbows
                 }
 
                 megaShotRecipe.m_resources = reqs.ToArray();
+
+                // Swap crafting station and min level for the target quality
+                megaShotRecipe.m_craftingStation = GetStationForLevel(level);
+                megaShotRecipe.m_minStationLevel = StationLevels[level - 1];
+
                 currentRecipeLevel = level;
             }
             catch { }
