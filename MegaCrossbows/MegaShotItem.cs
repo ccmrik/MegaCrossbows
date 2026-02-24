@@ -132,7 +132,7 @@ namespace MegaCrossbows
                 megaShotPrefab.name = PrefabName;
                 UnityEngine.Object.DontDestroyOnLoad(megaShotPrefab);
 
-                // Modify item properties
+                // Modify item properties (works on inactive GOs)
                 var itemDrop = megaShotPrefab.GetComponent<ItemDrop>();
                 if (itemDrop == null) return;
 
@@ -152,23 +152,41 @@ namespace MegaCrossbows
                 shared.m_damagesPerLevel = new HitData.DamageTypes();
 
                 // Activate the clone — REQUIRED for Valheim to read item data,
-                // show the recipe in crafting GUI, and spawn functional instances.
-                // ZNetView.Awake() fires here; if ZNetScene.instance exists it
-                // registers a live ZDO which we must clean up immediately.
-                megaShotPrefab.SetActive(true);
-
-                // Clean up any ZDO that ZNetView.Awake() created on our template.
-                // Templates must NOT have a live ZDO — only spawned instances should.
+                // show recipes in crafting GUI, and spawn functional instances.
+                //
+                // Problem: SetActive(true) triggers ZNetView.Awake() which registers
+                // a live ZDO with ZNetScene, causing NullRef in RemoveObjects every frame.
+                //
+                // Solution: temporarily null ZNetScene's backing field so ZNetView.Awake()
+                // sees no ZNetScene and skips all registration. Nulling just m_zdo after
+                // the fact is NOT enough — ZNetScene.AddInstance() already ran.
+                FieldInfo znsField = null;
+                object savedZns = null;
+                bool suppressed = false;
                 try
                 {
-                    var nview = megaShotPrefab.GetComponent<ZNetView>();
-                    if (nview != null && nview.GetZDO() != null)
+                    var flags = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
+                    foreach (var f in typeof(ZNetScene).GetFields(flags))
                     {
-                        var zdoField = typeof(ZNetView).GetField("m_zdo",
-                            BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (zdoField != null)
-                            zdoField.SetValue(nview, null);
+                        if (f.FieldType == typeof(ZNetScene))
+                        {
+                            znsField = f;
+                            savedZns = f.GetValue(null);
+                            f.SetValue(null, null);
+                            suppressed = true;
+                            break;
+                        }
                     }
+                }
+                catch { }
+
+                megaShotPrefab.SetActive(true);
+
+                // Restore ZNetScene.instance immediately
+                try
+                {
+                    if (suppressed && znsField != null)
+                        znsField.SetValue(null, savedZns);
                 }
                 catch { }
 
