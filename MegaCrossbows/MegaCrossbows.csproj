@@ -4,7 +4,7 @@
     <TargetFramework>net462</TargetFramework>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Nullable>enable</Nullable>
+    <Nullable>disable</Nullable>
     <AssemblyName>MegaCrossbows</AssemblyName>
     <Version>1.0.0</Version>
   </PropertyGroup>

@@ -612,7 +612,8 @@ namespace MegaCrossbows
             }
 
             // 4. Velocity
-            var attack = weapon.m_shared.m_attack;
+            var attack = weapon.m_shared?.m_attack;
+            if (attack == null) { UnityEngine.Object.Destroy(proj); return; }
             float speed = attack.m_projectileVel * (MegaCrossbowsPlugin.GetEffectiveVelocity() / 100f);
             Vector3 velocity = aimDir * speed;
 
@@ -672,7 +673,8 @@ namespace MegaCrossbows
 
             hitData.m_damage.m_chop = weaponDmg.m_chop + ammoDmg.m_chop;
             hitData.m_damage.m_pickaxe = weaponDmg.m_pickaxe + ammoDmg.m_pickaxe;
-            hitData.m_skill = weapon.m_shared.m_skillType;
+            if (weapon.m_shared != null)
+                hitData.m_skill = weapon.m_shared.m_skillType;
 
             // Tag bolt for object destruction if modifier key is held
             bool destroyMode = MegaCrossbowsPlugin.DestroyObjects.Value &&
@@ -685,7 +687,7 @@ namespace MegaCrossbows
 
             // Stagger / knockback
             float staggerMult = MegaCrossbowsPlugin.Stagger.Value;
-            try { hitData.m_pushForce = weapon.m_shared.m_attackForce * staggerMult; } catch { }
+            try { hitData.m_pushForce = (weapon.m_shared?.m_attackForce ?? 0f) * staggerMult; } catch { }
             try { hitData.m_staggerMultiplier = staggerMult; } catch { }
 
             // 6. Setup projectile (VERIFIED: 6-parameter overload)
@@ -760,7 +762,7 @@ namespace MegaCrossbows
                     if (MegaCrossbowsPlugin.NoGravity.Value)
                     {
                         rb.useGravity = false;
-                        rb.drag = 0f;
+                        rb.linearDamping = 0f;
                     }
                     // CCD prevents fast bolts from tunneling through thin colliders
                     // At 940 m/s the bolt moves ~15m per frame - without CCD it phases through objects

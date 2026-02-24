@@ -28,12 +28,12 @@ namespace MegaCrossbows
         private static readonly string[][] IngredientNames = new string[][]
         {
             new[] { "Wood", "DeerHide", "Resin" },                     // Level 1
-            new[] { "RoundLog", "BearHide", "Tin" },                   // Level 2
+            new[] { "RoundLog", "BjornHide", "Tin" },                  // Level 2
             new[] { "ElderBark", "Bloodbag", "Iron" },                 // Level 3
-            new[] { "FineWood", "FenrisHair", "Silver" },              // Level 4
-            new[] { "FineWood", "VileRibcage", "BlackMetal" },         // Level 5
+            new[] { "FineWood", "WolfHairBundle", "Silver" },           // Level 4
+            new[] { "FineWood", "UndeadBjornRibcage", "BlackMetal" },   // Level 5
             new[] { "YggdrasilWood", "Carapace", "BlackMarble" },      // Level 6
-            new[] { "Ashwood", "AsksvinHide", "Flametal" },            // Level 7
+            new[] { "Blackwood", "AskHide", "FlametalNew" },           // Level 7
             new[] { "SurtlingCore", "BlackCore", "MoltenCore" },       // Level 8
         };
         private const int IngredientAmount = 5;
@@ -95,6 +95,19 @@ namespace MegaCrossbows
                 if (megaShotPrefab == null) return;
             }
 
+            // Always enforce m_maxQuality = 8 (vanilla defaults to 4, may get reset)
+            // Set on prefab, and also on the recipe's item reference (belt-and-suspenders —
+            // Valheim may re-link SharedData from ObjectDB hash lookup after our postfix)
+            try
+            {
+                var itemDrop = megaShotPrefab.GetComponent<ItemDrop>();
+                if (itemDrop != null)
+                    itemDrop.m_itemData.m_shared.m_maxQuality = 8;
+                if (megaShotRecipe != null && megaShotRecipe.m_item != null)
+                    megaShotRecipe.m_item.m_itemData.m_shared.m_maxQuality = 8;
+            }
+            catch { }
+
             // Always attempt ZNetScene registration (may only succeed on later calls
             // when ZNetScene.instance is available)
             TryRegisterZNetScene();
@@ -105,6 +118,16 @@ namespace MegaCrossbows
             // Create recipe if not yet done
             if (megaShotRecipe == null)
                 CreateRecipe(objectDB);
+
+            // Retry resource initialization if previous call had an incomplete ObjectDB
+            // (first ObjectDB.Awake at menu may not have all item prefabs loaded)
+            // Also retry if resources are incomplete (some prefabs weren't found)
+            if (megaShotRecipe != null &&
+                (megaShotRecipe.m_resources == null || megaShotRecipe.m_resources.Length < IngredientNames[0].Length))
+            {
+                currentRecipeLevel = -1;
+                SetRecipeResources(objectDB, 1);
+            }
         }
 
         private static void CreatePrefab(ObjectDB objectDB)
@@ -248,7 +271,7 @@ namespace MegaCrossbows
             {
                 megaShotRecipe = ScriptableObject.CreateInstance<Recipe>();
                 megaShotRecipe.name = "Recipe_MegaShot";
-                megaShotRecipe.m_item = megaShotPrefab.GetComponent<ItemDrop>();
+                megaShotRecipe.m_item = megaShotPrefab?.GetComponent<ItemDrop>();
                 megaShotRecipe.m_amount = 1;
                 megaShotRecipe.m_enabled = true;
                 megaShotRecipe.m_craftingStation = GetStationForLevel(1);
@@ -295,7 +318,11 @@ namespace MegaCrossbows
                 megaShotRecipe.m_craftingStation = GetStationForLevel(level);
                 megaShotRecipe.m_minStationLevel = StationLevels[level - 1];
 
-                currentRecipeLevel = level;
+                // Only cache level when ALL ingredients were resolved.
+                // If ObjectDB was incomplete (first Awake at menu), leave uncached
+                // so the next Register() call retries with a full ObjectDB.
+                if (reqs.Count == names.Length)
+                    currentRecipeLevel = level;
             }
             catch { }
         }
@@ -338,15 +365,69 @@ namespace MegaCrossbows
         {
             if (megaShotRecipe == null) return;
 
+            // Force recipe discovery: add to known recipes when player knows any level 1 material
+            // m_knownRecipes / m_knownMaterial may be private — access via reflection
+            try
+            {
+                var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+                var knownRecipesField = typeof(Player).GetField("m_knownRecipes", flags);
+                var knownMaterialField = typeof(Player).GetField("m_knownMaterial", flags);
+                if (knownRecipesField != null && knownMaterialField != null)
+                {
+                    var knownRecipes = knownRecipesField.GetValue(player) as HashSet<string>;
+                    var knownMaterial = knownMaterialField.GetValue(player) as HashSet<string>;
+                    if (knownRecipes != null && !knownRecipes.Contains(megaShotRecipe.name))
+                    {
+                        if (megaShotRecipe.m_resources != null &&
+                            megaShotRecipe.m_resources.Length > 0 &&
+                            knownMaterial != null)
+                        {
+                            foreach (var req in megaShotRecipe.m_resources)
+                            {
+                                if (req != null && req.m_resItem != null &&
+                                    knownMaterial.Contains(
+                                        req.m_resItem.m_itemData.m_shared.m_name))
+                                {
+                                    knownRecipes.Add(megaShotRecipe.name);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // Enforce m_maxQuality = 8 on player's MegaShot items (in case shared data was reset)
+            try
+            {
+                var inv = player.GetInventory();
+                if (inv != null)
+                {
+                    foreach (var item in inv.GetAllItems())
+                    {
+                        if (IsMegaShot(item) && item.m_shared.m_maxQuality < 8)
+                            item.m_shared.m_maxQuality = 8;
+                    }
+                }
+            }
+            catch { }
+
             try
             {
                 bool craftingOpen = false;
                 try { craftingOpen = InventoryGui.IsVisible(); } catch { }
                 if (!craftingOpen)
                 {
-                    // Reset to level 1 when GUI is closed
-                    if (currentRecipeLevel != 1 && ObjectDB.instance != null)
+                    // Reset to level 1 when GUI is closed (also retry if resources are incomplete)
+                    if (ObjectDB.instance != null &&
+                        (currentRecipeLevel != 1 ||
+                         megaShotRecipe.m_resources == null ||
+                         megaShotRecipe.m_resources.Length < IngredientNames[0].Length))
+                    {
+                        currentRecipeLevel = -1;
                         SetRecipeResources(ObjectDB.instance, 1);
+                    }
                     return;
                 }
 

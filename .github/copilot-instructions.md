@@ -1,4 +1,4 @@
-# MegaCrossbows Copilot Instructions
+ï»¿# MegaCrossbows Copilot Instructions
 
 ## MANDATORY: EVERY ITERATION
 
@@ -26,7 +26,7 @@
 
 ## Project Overview
 
-BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapons with full config control. All settings auto-reload on file save (no restart needed). No custom logging — the mod is silent.
+BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapons with full config control. All settings auto-reload on file save (no restart needed). No custom logging â€” the mod is silent.
 
 **Plugin GUID**: `com.rikal.megacrossbows`
 **Target Framework**: .NET Framework 4.6.2 (Valheim requirement)
@@ -40,9 +40,9 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 |---|---|
 | `MegaCrossbows/Class1.cs` | Main plugin entry, all BepInEx config definitions, FileSystemWatcher for live config reload, manual GetDamage patch |
 | `MegaCrossbows/CrossbowPatches.cs` | All Harmony patches, firing logic, HUD, zoom, sound, animation, building damage, object destruction, DoT, bolt stacks |
-| `MegaCrossbows/MegaShotItem.cs` | Custom MegaShot crossbow item — clone, registration, per-level damage, per-level recipe |
+| `MegaCrossbows/MegaShotItem.cs` | Custom MegaShot crossbow item â€” clone, registration, per-level damage, per-level recipe |
 | `MegaCrossbows/MegaCrossbows.csproj` | Project file with all assembly references |
-| `VALHEIM_API_VERIFIED.md` | Verified working/broken Valheim API methods — **check before any patch** |
+| `VALHEIM_API_VERIFIED.md` | Verified working/broken Valheim API methods â€” **check before any patch** |
 | `build-and-deploy.ps1` | Build and deploy DLL to plugin folder |
 | `quick-commit.ps1` | Git add, commit, push shortcut |
 | `version-bump.ps1` | Semantic version bump (patch/minor/major) |
@@ -56,14 +56,14 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 - Always check `MegaCrossbowsPlugin.ModEnabled.Value` before applying any patch logic
 - Always check `__instance == Player.m_localPlayer` for player-specific patches
 - Use `try-catch` around ALL reflection and unverified API calls
-- **No logging** — do not add `ModLogger`, `Logger.Log`, `Debug.Log`, or any logging calls
-- Never cache config values — read `.Value` at point of use for live reload
+- **No logging** â€” do not add `ModLogger`, `Logger.Log`, `Debug.Log`, or any logging calls
+- Never cache config values â€” read `.Value` at point of use for live reload
 
 ### Harmony Patching Rules
 - Wrap ALL patch bodies in try-catch to prevent crashing other mods
 - **Check VALHEIM_API_VERIFIED.md** before attempting any new Harmony patch
 - If a method is not listed, assume it doesn't exist until verified
-- Never guess method names — guessing causes Harmony errors that crash mod loading
+- Never guess method names â€” guessing causes Harmony errors that crash mod loading
 - Use `[HarmonyPrefix]` returning `false` to block original method
 - Use `[HarmonyPostfix]` to add behavior after
 - Document any new verified/broken methods in VALHEIM_API_VERIFIED.md
@@ -81,20 +81,20 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 - **Only the MegaShot crossbow** gets all mod features (rapid fire, damage split, zoom, etc.)
 - **All other crossbows** (Ripper, Arbalest, etc.) function with vanilla Valheim behavior
 - Cloned from `CrossbowRipper` prefab at runtime in `ObjectDB.Awake`
-- **Clone safety**: parented under an inactive container GO so `activeSelf=true` but `activeInHierarchy=false` — prevents `ZNetView.Awake()` from registering a live ZDO. When Valheim `Instantiate()`s from it, the copy is root-level and fully active. Only added to `m_namedPrefabs` dict (NOT `m_prefabs` list) to avoid NullRef in `ZNetScene.RemoveObjects`.
+- **Clone safety**: parented under an inactive container GO so `activeSelf=true` but `activeInHierarchy=false` â€” prevents `ZNetView.Awake()` from registering a live ZDO. When Valheim `Instantiate()`s from it, the copy is root-level and fully active. Only added to `m_namedPrefabs` dict (NOT `m_prefabs` list) to avoid NullRef in `ZNetScene.RemoveObjects`.
 - Registered in ObjectDB + ZNetScene (via reflection for private fields)
 - **8 quality levels** (vanilla max is 4) with `m_maxQuality = 8`
 - **Per-level damage** (non-linear): 31, 41, 31, 51, 61, 71, 81, 91 pierce
   - Implemented via manual `GetDamage()` Harmony postfix (tooltip) + FireBolt override (actual damage)
-- **Per-level recipes** with completely different ingredients per level:
-  - Level 1: 5 Wood, 5 Deer Hide, 5 Resin
-  - Level 2: 5 Corewood, 5 Bear Hide, 5 Tin
-  - Level 3: 5 Ancient Bark, 5 Bloodbag, 5 Iron
-  - Level 4: 5 Fine Wood, 5 Fenris Hair, 5 Silver
-  - Level 5: 5 Fine Wood, 5 Vile Ribcage, 5 Black Metal
-  - Level 6: 5 Yggdrasil Wood, 5 Carapace, 5 Black Marble
-  - Level 7: 5 Ashwood, 5 Asksvin Hide, 5 Flametal
-  - Level 8: 5 Surtling Core, 5 Black Core, 5 Molten Core
+- **Per-level recipes** with completely different ingredients per level (prefab ID in parens):
+- Level 1: 5 Wood (`Wood`), 5 Deer Hide (`DeerHide`), 5 Resin (`Resin`)
+- Level 2: 5 Corewood (`RoundLog`), 5 Bjorn Hide (`BjornHide`), 5 Tin (`Tin`)
+- Level 3: 5 Ancient Bark (`ElderBark`), 5 Bloodbag (`Bloodbag`), 5 Iron (`Iron`)
+- Level 4: 5 Fine Wood (`FineWood`), 5 Wolf Hair Bundle (`WolfHairBundle`), 5 Silver (`Silver`)
+- Level 5: 5 Fine Wood (`FineWood`), 5 Undead Bjorn Ribcage (`UndeadBjornRibcage`), 5 Black Metal (`BlackMetal`)
+- Level 6: 5 Yggdrasil Wood (`YggdrasilWood`), 5 Carapace (`Carapace`), 5 Black Marble (`BlackMarble`)
+- Level 7: 5 Blackwood (`Blackwood`), 5 Asksvin Hide (`AskHide`), 5 Flametal (`FlametalNew`)
+- Level 8: 5 Surtling Core (`SurtlingCore`), 5 Black Core (`BlackCore`), 5 Molten Core (`MoltenCore`)
 - **Per-level crafting stations** (dynamically swapped with ingredients):
   - Level 1-2: Workbench (level 1, 2)
   - Level 3-5: Forge (level 1, 2, 3)
@@ -105,19 +105,19 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 - `CrossbowHelper.IsCrossbow()` now delegates to `MegaShotItem.IsMegaShot()`
 - Detection: `item.m_shared.m_name == "MegaShot"` (literal string, not localized)
 
-### 1. Rapid Fire System (`PatchPlayerUpdate` ? `FireBolt`)
+### 1. Rapid Fire System (`PatchPlayerUpdate` â†’ `FireBolt`)
 - **Left mouse hold** = auto-fire at configured rate
 - Fire timing uses **additive timing** (`lastFireTime += interval`) to prevent drift
 - Vanilla attack is **blocked** (`PatchBlockVanillaAttack` on `Humanoid.StartAttack`)
 - Blocking/shield stance **blocked** while holding crossbow (`PatchBlockBlocking`)
 - Stamina drain **blocked** for crossbows (`PatchBlockStamina`)
 
-### 2. Damage System — Split Damage
+### 2. Damage System â€” Split Damage
 Base pierce damage (weapon + ammo) is the **total damage pool**, divided evenly across all **enabled** damage types, then scaled by `BaseMultiplier`:
-- Charred bolt (82 pierce), only Pierce enabled: `82 × 1 = 82` pierce
+- Charred bolt (82 pierce), only Pierce enabled: `82 Ã— 1 = 82` pierce
 - All 8 types enabled: `82 / 8 = 10.25` per type
-- With BaseMultiplier=2, all 8 types: `2 × (82/8) = 20.5` per type
-- Total damage always equals `basePierce × BaseMultiplier` regardless of how many types are on
+- With BaseMultiplier=2, all 8 types: `2 Ã— (82/8) = 20.5` per type
+- Total damage always equals `basePierce Ã— BaseMultiplier` regardless of how many types are on
 - **Chop/Pickaxe** passed through from weapon base stats (unless Destroy Objects active)
 - `Stagger` scales weapon `m_attackForce` and `m_staggerMultiplier`
 
@@ -134,12 +134,12 @@ Two-layer approach for reliable DoT:
 - AOE destruction via `Physics.OverlapSphere` with configured AOE radius
 - Recursion guard: `isApplyingAOE` flag prevents infinite recursion
 - Patched types: `TreeBase`, `TreeLog`, `Destructible`, `MineRock`, `MineRock5`
-- **Buildings (`WearNTear`) are EXCLUDED** from destroy mode — they are never instant-destroyed
-- Ashlands cliffs (`cliff_ashlands*` on `static_solid` layer) are static terrain — NOT destroyable
+- **Buildings (`WearNTear`) are EXCLUDED** from destroy mode â€” they are never instant-destroyed
+- Ashlands cliffs (`cliff_ashlands*` on `static_solid` layer) are static terrain â€” NOT destroyable
 
 ### 5. HouseFire (`HouseFireHelper`)
 - When ALT-mode bolt hits ANYTHING (terrain, creatures, buildings, trees, rocks, grass), spawns Valheim's native `Fire` at impact point
-- Implemented via `Projectile.m_onHit` callback attached in `FireBolt` — fires on every hit type including bare ground
+- Implemented via `Projectile.m_onHit` callback attached in `FireBolt` â€” fires on every hit type including bare ground
 - Forces `m_burnable = true` on nearby `WearNTear` pieces so stone, black marble, and grausten burn
 - All Fire properties configurable: damage, radius, tick interval, spread, smoke die chance, max smoke
 - Prefab found at runtime: tries known names, then searches `Cinder.m_houseFirePrefab`, then any prefab with `Fire` component
@@ -193,42 +193,42 @@ Config auto-reloads on save (FileSystemWatcher).
 ### 1. General
 | Key | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `Enabled` | bool | `true` | — | Master on/off |
-| `DestroyObjects` | bool | `true` | — | Bolts instantly destroy trees, rocks, deposits (must hold modifier key) |
-| `DestroyObjectsKey` | KeyCode | `LeftAlt` | — | Modifier key to hold while firing for object destruction |
-| `WeaponProfile` | string | `Custom` | See list | Weapon preset — sets fire rate + velocity (Custom = use manual values) |
+| `Enabled` | bool | `true` | â€” | Master on/off |
+| `DestroyObjects` | bool | `true` | â€” | Bolts instantly destroy trees, rocks, deposits (must hold modifier key) |
+| `DestroyObjectsKey` | KeyCode | `LeftAlt` | â€” | Modifier key to hold while firing for object destruction |
+| `WeaponProfile` | string | `Custom` | See list | Weapon preset â€” sets fire rate + velocity (Custom = use manual values) |
 | `FireRate` | float | `10` | 1-100 | Shots per second (only used when WeaponProfile = Custom) |
-| `MagazineCapacity` | int | `1000` | — | Rounds before reload |
+| `MagazineCapacity` | int | `1000` | â€” | Rounds before reload |
 
 ### 2. Zoom
 | Key | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `ZoomMin` | float | `2` | — | Minimum zoom multiplier |
-| `ZoomMax` | float | `10` | — | Maximum zoom multiplier |
+| `ZoomMin` | float | `2` | â€” | Minimum zoom multiplier |
+| `ZoomMax` | float | `10` | â€” | Maximum zoom multiplier |
 
 ### 3. Projectile
 | Key | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `Velocity` | float | `470` | — | Bolt velocity % (470 = ~940 m/s) |
-| `NoGravity` | bool | `true` | — | Disable bolt gravity |
+| `Velocity` | float | `470` | â€” | Bolt velocity % (470 = ~940 m/s) |
+| `NoGravity` | bool | `true` | â€” | Disable bolt gravity |
 
 ### 4. Damage (split damage across enabled types)
 | Key | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `BaseMultiplier` | float | `1` | 0-10 | Overall damage multiplier (scales total pool) |
-| `Pierce` | bool | `true` | — | Enable pierce damage |
-| `Blunt` | bool | `true` | — | Enable blunt damage |
-| `Slash` | bool | `true` | — | Enable slash damage |
+| `Pierce` | bool | `true` | â€” | Enable pierce damage |
+| `Blunt` | bool | `true` | â€” | Enable blunt damage |
+| `Slash` | bool | `true` | â€” | Enable slash damage |
 | `Stagger` | float | `0` | 0-10 | Stagger/knockback multiplier |
 
 ### 5. Damage - Elemental (also split from same pool)
 | Key | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `Fire` | bool | `true` | — | Enable fire damage |
-| `Frost` | bool | `true` | — | Enable frost damage |
-| `Lightning` | bool | `true` | — | Enable lightning damage |
-| `Poison` | bool | `true` | — | Enable poison damage |
-| `Spirit` | bool | `true` | — | Enable spirit damage |
+| `Fire` | bool | `true` | â€” | Enable fire damage |
+| `Frost` | bool | `true` | â€” | Enable frost damage |
+| `Lightning` | bool | `true` | â€” | Enable lightning damage |
+| `Poison` | bool | `true` | â€” | Enable poison damage |
+| `Spirit` | bool | `true` | â€” | Enable spirit damage |
 | `ElementalDoT` | float | `0` | 0-10 | DoT multiplier (0=default Valheim, 10=10x duration+damage) |
 
 ### 6. AOE
@@ -269,7 +269,7 @@ Config auto-reloads on save (FileSystemWatcher).
 | `PatchBuildingDamage` | `WearNTear.Damage` | Prefix+Postfix | Building damage/fire, HouseFire on ALT-mode |
 | `PatchCrossbowAOE` | `Character.Damage` | Postfix | AOE splash from impact point |
 | `PatchCharacterDamageDoT` | `Character.Damage` | Postfix | Elemental DoT TTL+damage scaling |
-| `PatchBoltStackSize` | `ObjectDB.Awake` | Postfix | Bolt stack size ? 1000 |
+| `PatchBoltStackSize` | `ObjectDB.Awake` | Postfix | Bolt stack size â†’ 1000 |
 | `PatchRegisterMegaShot` | `ObjectDB.Awake` | Postfix (High priority) | Register MegaShot item + recipe |
 | `PatchMegaShotDamage` | `ItemDrop.ItemData.GetDamage` | Postfix (manual) | Per-level damage for tooltip |
 | `PatchDestroyTree` | `TreeBase.Damage` | Prefix+Postfix | Destroy trees + AOE |
@@ -330,12 +330,12 @@ sc query ValheimServer
 ---
 
 ## Common Pitfalls
-- **Fire rate > 10 doesn't work** — Valheim's animation system can't keep up
-- **Don't cache config values** — they must be read via `.Value` for live reload
-- **Ashlands cliffs are NOT destroyable** — `cliff_ashlands*` on `static_solid` layer is terrain
-- **Projectile tunneling at high speed** — CCD (`ContinuousDynamic`) prevents this
-- **`m_toolTier` not preserved by Projectile** — use `m_damage` fields (chop/pickaxe) as reliable tags
-- **DoT timing window broken** — patch `Character.Damage` Postfix, not `SEMan.AddStatusEffect`
-- **SE_Burning.m_damage is DamageTypes struct**, not float — must handle via reflection correctly
-- **Animator speed affects ALL animations** — must reset to 1.0 when not firing
+- **Fire rate > 10 doesn't work** â€” Valheim's animation system can't keep up
+- **Don't cache config values** â€” they must be read via `.Value` for live reload
+- **Ashlands cliffs are NOT destroyable** â€” `cliff_ashlands*` on `static_solid` layer is terrain
+- **Projectile tunneling at high speed** â€” CCD (`ContinuousDynamic`) prevents this
+- **`m_toolTier` not preserved by Projectile** â€” use `m_damage` fields (chop/pickaxe) as reliable tags
+- **DoT timing window broken** â€” patch `Character.Damage` Postfix, not `SEMan.AddStatusEffect`
+- **SE_Burning.m_damage is DamageTypes struct**, not float â€” must handle via reflection correctly
+- **Animator speed affects ALL animations** â€” must reset to 1.0 when not firing
 

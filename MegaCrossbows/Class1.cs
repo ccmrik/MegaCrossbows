@@ -67,6 +67,7 @@ namespace MegaCrossbows
         private Harmony _harmony;
         private FileSystemWatcher _configWatcher;
 
+
         private void Awake()
         {
             // Profile (top of config file)
