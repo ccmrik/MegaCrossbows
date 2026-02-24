@@ -7,7 +7,7 @@ using System.Reflection;
 namespace MegaCrossbows
 {
     /// <summary>
-    /// Custom MegaShot crossbow — cloned from CrossbowRipper with 8 quality levels,
+    /// Custom MegaShot crossbow — cloned from CrossbowRipper with 4 quality levels,
     /// per-level damage, per-level upgrade recipes with different ingredients.
     /// </summary>
     public static class MegaShotItem
@@ -21,20 +21,17 @@ namespace MegaCrossbows
         private static Recipe megaShotRecipe;
         private static int currentRecipeLevel = -1;
 
-        // Per-level pierce damage (index 0 = level 1, index 7 = level 8)
-        public static readonly float[] PierceDamagePerLevel = { 31f, 41f, 31f, 51f, 61f, 71f, 81f, 91f };
+        // Per-level pierce damage (index 0 = level 1, index 3 = level 4)
+        // Linear: 20, 40, 60, 80 — also encoded via m_damagesPerLevel for native tooltip support
+        public static readonly float[] PierceDamagePerLevel = { 20f, 40f, 60f, 80f };
 
         // Per-level recipe ingredient prefab names (all 5 each)
         private static readonly string[][] IngredientNames = new string[][]
         {
-            new[] { "Wood", "DeerHide", "Resin" },                     // Level 1
-            new[] { "RoundLog", "BjornHide", "Tin" },                  // Level 2
-            new[] { "ElderBark", "Bloodbag", "Iron" },                 // Level 3
-            new[] { "FineWood", "WolfHairBundle", "Silver" },           // Level 4
-            new[] { "FineWood", "UndeadBjornRibcage", "BlackMetal" },   // Level 5
-            new[] { "YggdrasilWood", "Carapace", "BlackMarble" },      // Level 6
-            new[] { "Blackwood", "AskHide", "FlametalNew" },           // Level 7
-            new[] { "SurtlingCore", "BlackCore", "MoltenCore" },       // Level 8
+            new[] { "Wood", "LeatherScraps", "Resin" },        // Level 1
+            new[] { "RoundLog", "BjornHide", "GreydwarfEye" },  // Level 2
+            new[] { "FineWood", "LoxPelt", "Tar" },             // Level 3
+            new[] { "Ashwood", "AskHide", "MoltenCore" },       // Level 4
         };
         private const int IngredientAmount = 5;
 
@@ -45,15 +42,11 @@ namespace MegaCrossbows
             "workbench",   // Level 1
             "workbench",   // Level 2
             "forge",       // Level 3
-            "forge",       // Level 4
-            "forge",       // Level 5
-            "blackforge",  // Level 6
-            "blackforge",  // Level 7
-            "blackforge",  // Level 8
+            "blackforge",  // Level 4
         };
         private static readonly int[] StationLevels = new int[]
         {
-            1, 2, 1, 2, 3, 1, 2, 3
+            1, 2, 1, 1
         };
 
         // Cached crafting station references (found from existing recipes)
@@ -95,16 +88,14 @@ namespace MegaCrossbows
                 if (megaShotPrefab == null) return;
             }
 
-            // Always enforce m_maxQuality = 8 (vanilla defaults to 4, may get reset)
-            // Set on prefab, and also on the recipe's item reference (belt-and-suspenders —
-            // Valheim may re-link SharedData from ObjectDB hash lookup after our postfix)
+            // Enforce m_maxQuality = 4 on prefab and recipe item
             try
             {
                 var itemDrop = megaShotPrefab.GetComponent<ItemDrop>();
                 if (itemDrop != null)
-                    itemDrop.m_itemData.m_shared.m_maxQuality = 8;
+                    itemDrop.m_itemData.m_shared.m_maxQuality = 4;
                 if (megaShotRecipe != null && megaShotRecipe.m_item != null)
-                    megaShotRecipe.m_item.m_itemData.m_shared.m_maxQuality = 8;
+                    megaShotRecipe.m_item.m_itemData.m_shared.m_maxQuality = 4;
             }
             catch { }
 
@@ -169,17 +160,19 @@ namespace MegaCrossbows
                 var shared = itemDrop.m_itemData.m_shared;
                 shared.m_name = ItemName;
                 shared.m_description = Description;
-                shared.m_maxQuality = 8;
+                shared.m_maxQuality = 4;
                 shared.m_backstabBonus = 3f;
 
                 // Clear DLC flag if any
                 try { shared.m_dlc = ""; } catch { }
 
-                // Base damage (level 1) — per-level handled by GetDamage patch + FireBolt override
+                // Base damage (level 1) + linear per-level increment for native tooltip support
                 var baseDmg = new HitData.DamageTypes();
                 baseDmg.m_pierce = PierceDamagePerLevel[0];
                 shared.m_damages = baseDmg;
-                shared.m_damagesPerLevel = new HitData.DamageTypes();
+                var perLevelDmg = new HitData.DamageTypes();
+                perLevelDmg.m_pierce = 20f;
+                shared.m_damagesPerLevel = perLevelDmg;
 
                 // Register in ObjectDB
                 objectDB.m_items.Add(megaShotPrefab);
@@ -258,7 +251,7 @@ namespace MegaCrossbows
 
         private static CraftingStation GetStationForLevel(int level)
         {
-            if (level < 1 || level > 8) return cachedWorkbench;
+            if (level < 1 || level > 4) return cachedWorkbench;
             string keyword = StationKeywords[level - 1];
             if (keyword == "blackforge" && cachedBlackForge != null) return cachedBlackForge;
             if (keyword == "forge" && cachedForge != null) return cachedForge;
@@ -289,7 +282,7 @@ namespace MegaCrossbows
         private static void SetRecipeResources(ObjectDB objectDB, int level)
         {
             if (objectDB == null || megaShotRecipe == null) return;
-            if (level < 1 || level > 8) return;
+            if (level < 1 || level > 4) return;
             if (level == currentRecipeLevel) return;
 
             try
@@ -398,7 +391,7 @@ namespace MegaCrossbows
             }
             catch { }
 
-            // Enforce m_maxQuality = 8 on player's MegaShot items (in case shared data was reset)
+            // Enforce m_maxQuality = 4 on player's MegaShot items (in case shared data was reset)
             try
             {
                 var inv = player.GetInventory();
@@ -406,8 +399,8 @@ namespace MegaCrossbows
                 {
                     foreach (var item in inv.GetAllItems())
                     {
-                        if (IsMegaShot(item) && item.m_shared.m_maxQuality < 8)
-                            item.m_shared.m_maxQuality = 8;
+                        if (IsMegaShot(item) && item.m_shared.m_maxQuality != 4)
+                            item.m_shared.m_maxQuality = 4;
                     }
                 }
             }
@@ -446,7 +439,7 @@ namespace MegaCrossbows
                     }
                 }
 
-                if (targetLevel > 8) return;
+                if (targetLevel > 4) return;
 
                 if (ObjectDB.instance != null)
                     SetRecipeResources(ObjectDB.instance, targetLevel);
@@ -474,6 +467,7 @@ namespace MegaCrossbows
     // Manually patched in Class1.cs (not attribute-based) — safe if GetDamage doesn't exist
     public static class PatchMegaShotDamage
     {
+        // Postfix for GetDamage() (no params) — calls GetDamage(m_quality, m_worldLevel) internally
         public static void Postfix(ItemDrop.ItemData __instance, ref HitData.DamageTypes __result)
         {
             try
@@ -481,6 +475,18 @@ namespace MegaCrossbows
                 if (!MegaCrossbowsPlugin.ModEnabled.Value) return;
                 if (!MegaShotItem.IsMegaShot(__instance)) return;
                 __result.m_pierce = MegaShotItem.GetPierceDamage(__instance.m_quality);
+            }
+            catch { }
+        }
+
+        // Postfix for GetDamage(int quality, float worldLevel) — used by tooltip/UI for per-level display
+        public static void PostfixQuality(ItemDrop.ItemData __instance, int quality, ref HitData.DamageTypes __result)
+        {
+            try
+            {
+                if (!MegaCrossbowsPlugin.ModEnabled.Value) return;
+                if (!MegaShotItem.IsMegaShot(__instance)) return;
+                __result.m_pierce = MegaShotItem.GetPierceDamage(quality);
             }
             catch { }
         }

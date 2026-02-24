@@ -189,6 +189,22 @@ namespace MegaCrossbows
                     }
                 }
                 catch { }
+
+                // Also patch GetDamage(int, float) overload — tooltip/UI calls this for per-level display
+                try
+                {
+                    var getDamageQualityMethod = typeof(ItemDrop.ItemData).GetMethod("GetDamage",
+                        BindingFlags.Public | BindingFlags.Instance, null,
+                        new Type[] { typeof(int), typeof(float) }, null);
+                    if (getDamageQualityMethod != null)
+                    {
+                        var postfixQuality = typeof(PatchMegaShotDamage).GetMethod("PostfixQuality",
+                            BindingFlags.Static | BindingFlags.Public);
+                        if (postfixQuality != null)
+                            _harmony.Patch(getDamageQualityMethod, postfix: new HarmonyMethod(postfixQuality));
+                    }
+                }
+                catch { }
             }
         }
 

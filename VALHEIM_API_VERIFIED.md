@@ -53,7 +53,8 @@
 - ? `item.m_shared.m_attack` - Attack data
 - ? `item.m_shared.m_attack.m_attackProjectile` - GameObject (can be null!)
 - ? `item.m_shared.m_skillType` - Skills.SkillType enum
-- ? `item.GetDamage()` - Returns HitData.DamageTypes
+- ? `item.GetDamage()` - Returns HitData.DamageTypes (calls GetDamage(m_quality, m_worldLevel) internally)
+- ? `item.GetDamage(int quality, float worldLevel)` - Returns HitData.DamageTypes, computes m_damages + (quality-1)*m_damagesPerLevel + worldLevel scaling. **Tooltip/UI calls this overload directly for per-level display.**
 - ?? `item.GetMaxDurability()` - NEEDS VERIFICATION (wrapped in try-catch in mod)
 - ?? `item.GetDurabilityPercentage()` - NEEDS VERIFICATION (wrapped in try-catch in mod)
 

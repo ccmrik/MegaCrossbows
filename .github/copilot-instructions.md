@@ -83,22 +83,19 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 - Cloned from `CrossbowRipper` prefab at runtime in `ObjectDB.Awake`
 - **Clone safety**: parented under an inactive container GO so `activeSelf=true` but `activeInHierarchy=false` — prevents `ZNetView.Awake()` from registering a live ZDO. When Valheim `Instantiate()`s from it, the copy is root-level and fully active. Only added to `m_namedPrefabs` dict (NOT `m_prefabs` list) to avoid NullRef in `ZNetScene.RemoveObjects`.
 - Registered in ObjectDB + ZNetScene (via reflection for private fields)
-- **8 quality levels** (vanilla max is 4) with `m_maxQuality = 8`
-- **Per-level damage** (non-linear): 31, 41, 31, 51, 61, 71, 81, 91 pierce
-  - Implemented via manual `GetDamage()` Harmony postfix (tooltip) + FireBolt override (actual damage)
+- **4 quality levels** (vanilla max) with `m_maxQuality = 4`
+- **Per-level damage** (linear): 20, 40, 60, 80 pierce
+  - Encoded via `m_damages.m_pierce = 20` and `m_damagesPerLevel.m_pierce = 20` for native tooltip support
+  - Also enforced via manual `GetDamage()` and `GetDamage(int, float)` Harmony postfixes + FireBolt override
 - **Per-level recipes** with completely different ingredients per level (prefab ID in parens):
-- Level 1: 5 Wood (`Wood`), 5 Deer Hide (`DeerHide`), 5 Resin (`Resin`)
-- Level 2: 5 Corewood (`RoundLog`), 5 Bjorn Hide (`BjornHide`), 5 Tin (`Tin`)
-- Level 3: 5 Ancient Bark (`ElderBark`), 5 Bloodbag (`Bloodbag`), 5 Iron (`Iron`)
-- Level 4: 5 Fine Wood (`FineWood`), 5 Wolf Hair Bundle (`WolfHairBundle`), 5 Silver (`Silver`)
-- Level 5: 5 Fine Wood (`FineWood`), 5 Undead Bjorn Ribcage (`UndeadBjornRibcage`), 5 Black Metal (`BlackMetal`)
-- Level 6: 5 Yggdrasil Wood (`YggdrasilWood`), 5 Carapace (`Carapace`), 5 Black Marble (`BlackMarble`)
-- Level 7: 5 Blackwood (`Blackwood`), 5 Asksvin Hide (`AskHide`), 5 Flametal (`FlametalNew`)
-- Level 8: 5 Surtling Core (`SurtlingCore`), 5 Black Core (`BlackCore`), 5 Molten Core (`MoltenCore`)
+- Level 1: 5 Wood (`Wood`), 5 Leather Scraps (`LeatherScraps`), 5 Resin (`Resin`)
+- Level 2: 5 Corewood (`RoundLog`), 5 Bear Hide (`BjornHide`), 5 Greydwarf Eye (`GreydwarfEye`)
+- Level 3: 5 Fine Wood (`FineWood`), 5 Lox Pelt (`LoxPelt`), 5 Tar (`Tar`)
+- Level 4: 5 Ashwood (`Ashwood`), 5 Asksvin Hide (`AskHide`), 5 Molten Core (`MoltenCore`)
 - **Per-level crafting stations** (dynamically swapped with ingredients):
   - Level 1-2: Workbench (level 1, 2)
-  - Level 3-5: Forge (level 1, 2, 3)
-  - Level 6-8: Black Forge (level 1, 2, 3)
+  - Level 3: Forge (level 1)
+  - Level 4: Black Forge (level 1)
 - Stations found by scanning existing recipes for keyword matches (`workbench`, `forge`, `blackforge`)
 - Recipe ingredients + station dynamically swapped in `Player.Update` based on target upgrade quality
 - 3x backstab bonus at all levels
