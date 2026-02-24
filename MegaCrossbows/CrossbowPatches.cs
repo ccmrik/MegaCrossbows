@@ -41,9 +41,11 @@ namespace MegaCrossbows
         public static bool showHUD = false;
         public static string ammoText = "";
         public static string distanceText = "";
+        public static string levelText = "";
 
         private GUIStyle ammoStyle;
         private GUIStyle distanceStyle;
+        private GUIStyle levelStyle;
 
         void OnGUI()
         {
@@ -61,10 +63,22 @@ namespace MegaCrossbows
                 distanceStyle.fontSize = 16;
                 distanceStyle.normal.textColor = new Color(1f, 1f, 1f, 0.7f);
                 distanceStyle.alignment = TextAnchor.MiddleCenter;
+
+                levelStyle = new GUIStyle();
+                levelStyle.fontSize = 16;
+                levelStyle.fontStyle = FontStyle.Bold;
+                levelStyle.normal.textColor = new Color(1f, 0.85f, 0.3f, 0.9f);
+                levelStyle.alignment = TextAnchor.MiddleRight;
             }
 
             float w = Screen.width;
             float h = Screen.height;
+
+            // Weapon level - above ammo counter
+            if (!string.IsNullOrEmpty(levelText))
+            {
+                GUI.Label(new Rect(w - 250, h - 130, 240, 30), levelText, levelStyle);
+            }
 
             // Ammo counter - bottom right
             GUI.Label(new Rect(w - 250, h - 100, 240, 40), ammoText, ammoStyle);
@@ -1017,6 +1031,20 @@ namespace MegaCrossbows
 
             // Format HUD text
             string zoomStr = zooming ? $" | {zoomLevel:F1}x" : "";
+
+            // Show weapon quality level (Valheim's star UI caps at 4, actual quality can be 8)
+            var weapon = player.GetCurrentWeapon();
+            if (weapon != null && MegaShotItem.IsMegaShot(weapon))
+            {
+                int quality = weapon.m_quality;
+                int maxQuality = weapon.m_shared != null ? weapon.m_shared.m_maxQuality : 4;
+                CrossbowHUD.levelText = $"MegaShot Lv.{quality}/{maxQuality}";
+            }
+            else
+            {
+                CrossbowHUD.levelText = "";
+            }
+
             if (state.isReloading)
             {
                 CrossbowHUD.ammoText = "RELOADING...";
