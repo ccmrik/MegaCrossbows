@@ -81,7 +81,7 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 - **Only the MegaShot crossbow** gets all mod features (rapid fire, damage split, zoom, etc.)
 - **All other crossbows** (Ripper, Arbalest, etc.) function with vanilla Valheim behavior
 - Cloned from `CrossbowRipper` prefab at runtime in `ObjectDB.Awake`
-- **Clone safety**: source deactivated before `Instantiate()` to prevent `ZNetView.Awake()` from registering a live ZDO. Only added to `m_namedPrefabs` dict (NOT `m_prefabs` list) to avoid NullRef in `ZNetScene.RemoveObjects`.
+- **Clone safety**: parented under an inactive container GO so `activeSelf=true` but `activeInHierarchy=false` — prevents `ZNetView.Awake()` from registering a live ZDO. When Valheim `Instantiate()`s from it, the copy is root-level and fully active. Only added to `m_namedPrefabs` dict (NOT `m_prefabs` list) to avoid NullRef in `ZNetScene.RemoveObjects`.
 - Registered in ObjectDB + ZNetScene (via reflection for private fields)
 - **8 quality levels** (vanilla max is 4) with `m_maxQuality = 8`
 - **Per-level damage** (non-linear): 31, 41, 31, 51, 61, 71, 81, 91 pierce

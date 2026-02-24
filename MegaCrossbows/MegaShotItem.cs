@@ -17,6 +17,7 @@ namespace MegaCrossbows
         public const string Description = "A legendary rapid-fire crossbow. Forged for destruction.";
 
         private static GameObject megaShotPrefab;
+        private static GameObject prefabContainer;
         private static Recipe megaShotRecipe;
         private static int currentRecipeLevel = -1;
 
@@ -123,16 +124,22 @@ namespace MegaCrossbows
                 }
                 if (ripperPrefab == null) return;
 
-                // Clone: deactivate source before Instantiate() to prevent
-                // ZNetView.Awake() from registering a live ZDO on the clone.
-                bool wasActive = ripperPrefab.activeSelf;
-                ripperPrefab.SetActive(false);
-                megaShotPrefab = UnityEngine.Object.Instantiate(ripperPrefab);
-                ripperPrefab.SetActive(wasActive);
-                megaShotPrefab.name = PrefabName;
-                UnityEngine.Object.DontDestroyOnLoad(megaShotPrefab);
+                // Inactive container pattern: parent the clone under an inactive root GO.
+                // The clone keeps activeSelf=true but activeInHierarchy=false,
+                // so ZNetView.Awake() NEVER fires (no live ZDO, no ZNetScene registration).
+                // When Valheim later calls Instantiate(megaShotPrefab), the copy is
+                // root-level with no parent ? fully active ? ZNetView.Awake works normally.
+                if (prefabContainer == null)
+                {
+                    prefabContainer = new GameObject("MegaCrossbowsPrefabs");
+                    prefabContainer.SetActive(false);
+                    UnityEngine.Object.DontDestroyOnLoad(prefabContainer);
+                }
 
-                // Modify item properties (works on inactive GOs)
+                megaShotPrefab = UnityEngine.Object.Instantiate(ripperPrefab, prefabContainer.transform);
+                megaShotPrefab.name = PrefabName;
+
+                // Modify item properties (GetComponent works on inactive-in-hierarchy objects)
                 var itemDrop = megaShotPrefab.GetComponent<ItemDrop>();
                 if (itemDrop == null) return;
 
@@ -150,45 +157,6 @@ namespace MegaCrossbows
                 baseDmg.m_pierce = PierceDamagePerLevel[0];
                 shared.m_damages = baseDmg;
                 shared.m_damagesPerLevel = new HitData.DamageTypes();
-
-                // Activate the clone — REQUIRED for Valheim to read item data,
-                // show recipes in crafting GUI, and spawn functional instances.
-                //
-                // Problem: SetActive(true) triggers ZNetView.Awake() which registers
-                // a live ZDO with ZNetScene, causing NullRef in RemoveObjects every frame.
-                //
-                // Solution: temporarily null ZNetScene's backing field so ZNetView.Awake()
-                // sees no ZNetScene and skips all registration. Nulling just m_zdo after
-                // the fact is NOT enough — ZNetScene.AddInstance() already ran.
-                FieldInfo znsField = null;
-                object savedZns = null;
-                bool suppressed = false;
-                try
-                {
-                    var flags = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
-                    foreach (var f in typeof(ZNetScene).GetFields(flags))
-                    {
-                        if (f.FieldType == typeof(ZNetScene))
-                        {
-                            znsField = f;
-                            savedZns = f.GetValue(null);
-                            f.SetValue(null, null);
-                            suppressed = true;
-                            break;
-                        }
-                    }
-                }
-                catch { }
-
-                megaShotPrefab.SetActive(true);
-
-                // Restore ZNetScene.instance immediately
-                try
-                {
-                    if (suppressed && znsField != null)
-                        znsField.SetValue(null, savedZns);
-                }
-                catch { }
 
                 // Register in ObjectDB
                 objectDB.m_items.Add(megaShotPrefab);
