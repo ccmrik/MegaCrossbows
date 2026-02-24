@@ -38,8 +38,9 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 
 | File | Purpose |
 |---|---|
-| `MegaCrossbows/Class1.cs` | Main plugin entry, all BepInEx config definitions, FileSystemWatcher for live config reload |
+| `MegaCrossbows/Class1.cs` | Main plugin entry, all BepInEx config definitions, FileSystemWatcher for live config reload, manual GetDamage patch |
 | `MegaCrossbows/CrossbowPatches.cs` | All Harmony patches, firing logic, HUD, zoom, sound, animation, building damage, object destruction, DoT, bolt stacks |
+| `MegaCrossbows/MegaShotItem.cs` | Custom MegaShot crossbow item — clone, registration, per-level damage, per-level recipe |
 | `MegaCrossbows/MegaCrossbows.csproj` | Project file with all assembly references |
 | `VALHEIM_API_VERIFIED.md` | Verified working/broken Valheim API methods — **check before any patch** |
 | `build-and-deploy.ps1` | Build and deploy DLL to plugin folder |
@@ -75,6 +76,29 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 ---
 
 ## All Features & How They Work
+
+### 0. MegaShot Custom Crossbow (`MegaShotItem`)
+- **Only the MegaShot crossbow** gets all mod features (rapid fire, damage split, zoom, etc.)
+- **All other crossbows** (Ripper, Arbalest, etc.) function with vanilla Valheim behavior
+- Cloned from `CrossbowRipper` prefab at runtime in `ObjectDB.Awake`
+- Registered in ObjectDB + ZNetScene (via reflection for private fields)
+- **8 quality levels** (vanilla max is 4) with `m_maxQuality = 8`
+- **Per-level damage** (non-linear): 31, 41, 31, 51, 61, 71, 81, 91 pierce
+  - Implemented via manual `GetDamage()` Harmony postfix (tooltip) + FireBolt override (actual damage)
+- **Per-level recipes** with completely different ingredients per level:
+  - Level 1: 5 Wood, 5 Deer Hide, 5 Resin
+  - Level 2: 5 Corewood, 5 Bear Hide, 5 Tin
+  - Level 3: 5 Ancient Bark, 5 Bloodbag, 5 Iron
+  - Level 4: 5 Fine Wood, 5 Fenris Hair, 5 Silver
+  - Level 5: 5 Fine Wood, 5 Vile Ribcage, 5 Black Metal
+  - Level 6: 5 Yggdrasil Wood, 5 Carapace, 5 Black Marble
+  - Level 7: 5 Ashwood, 5 Asksvin Hide, 5 Flametal
+  - Level 8: 5 Surtling Core, 5 Black Core, 5 Molten Core
+- Recipe ingredients dynamically swapped in `Player.Update` based on target upgrade quality
+- 3x backstab bonus at all levels
+- Crafting station cloned from Ripper's recipe
+- `CrossbowHelper.IsCrossbow()` now delegates to `MegaShotItem.IsMegaShot()`
+- Detection: `item.m_shared.m_name == "MegaShot"` (literal string, not localized)
 
 ### 1. Rapid Fire System (`PatchPlayerUpdate` ? `FireBolt`)
 - **Left mouse hold** = auto-fire at configured rate
@@ -143,9 +167,9 @@ Two-layer approach for reliable DoT:
 - Building damage multiplier, fire damage injection, fire spread, Ashlands ignite
 
 ### 12. Crossbow Detection (`CrossbowHelper`)
-- Checks `m_skillType == Skills.SkillType.Crossbows`
-- Fallback: name contains "crossbow", "arbalest", or "ripper"
-- Fallback: ammo type contains "bolt"
+- Delegates to `MegaShotItem.IsMegaShot(item)`
+- Checks `item.m_shared.m_name == "MegaShot"` (literal string match)
+- Only MegaShot triggers mod behavior; all other crossbows use vanilla mechanics
 
 ### 13. Durability
 - Crossbows set to effectively indestructible
@@ -241,6 +265,8 @@ Config auto-reloads on save (FileSystemWatcher).
 | `PatchCrossbowAOE` | `Character.Damage` | Postfix | AOE splash from impact point |
 | `PatchCharacterDamageDoT` | `Character.Damage` | Postfix | Elemental DoT TTL+damage scaling |
 | `PatchBoltStackSize` | `ObjectDB.Awake` | Postfix | Bolt stack size ? 1000 |
+| `PatchRegisterMegaShot` | `ObjectDB.Awake` | Postfix (High priority) | Register MegaShot item + recipe |
+| `PatchMegaShotDamage` | `ItemDrop.ItemData.GetDamage` | Postfix (manual) | Per-level damage for tooltip |
 | `PatchDestroyTree` | `TreeBase.Damage` | Prefix+Postfix | Destroy trees + AOE |
 | `PatchDestroyLog` | `TreeLog.Damage` | Prefix+Postfix | Destroy logs + AOE |
 | `PatchDestroyDestructible` | `Destructible.Damage` | Prefix+Postfix | Destroy small objects + AOE |

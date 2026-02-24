@@ -2,8 +2,10 @@
 using BepInEx.Configuration;
 using HarmonyLib;
 using UnityEngine;
+using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Reflection;
 
 namespace MegaCrossbows
 {
@@ -171,6 +173,21 @@ namespace MegaCrossbows
             {
                 _harmony = new Harmony(PluginGUID);
                 _harmony.PatchAll();
+
+                // Manual patching for GetDamage (not attribute-based — safe if method doesn't exist)
+                try
+                {
+                    var getDamageMethod = typeof(ItemDrop.ItemData).GetMethod("GetDamage",
+                        BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                    if (getDamageMethod != null)
+                    {
+                        var postfix = typeof(PatchMegaShotDamage).GetMethod("Postfix",
+                            BindingFlags.Static | BindingFlags.Public);
+                        if (postfix != null)
+                            _harmony.Patch(getDamageMethod, postfix: new HarmonyMethod(postfix));
+                    }
+                }
+                catch { }
             }
         }
 

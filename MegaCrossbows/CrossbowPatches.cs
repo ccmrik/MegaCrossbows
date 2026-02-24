@@ -13,13 +13,7 @@ namespace MegaCrossbows
     {
         public static bool IsCrossbow(ItemDrop.ItemData item)
         {
-            if (item == null || item.m_shared == null) return false;
-            if (item.m_shared.m_skillType == Skills.SkillType.Crossbows) return true;
-            string name = item.m_shared.m_name.ToLower();
-            if (name.Contains("crossbow") || name.Contains("arbalest") || name.Contains("ripper")) return true;
-            string ammo = item.m_shared.m_ammoType?.ToLower() ?? "";
-            if (ammo.Contains("bolt")) return true;
-            return false;
+            return MegaShotItem.IsMegaShot(item);
         }
 
         public static bool IsBolt(ItemDrop.ItemData item)
@@ -361,6 +355,9 @@ namespace MegaCrossbows
             if (!MegaCrossbowsPlugin.ModEnabled.Value) return;
             if (__instance != Player.m_localPlayer) return;
 
+            // Update MegaShot recipe (needs to run even when not holding crossbow)
+            MegaShotItem.UpdateRecipeForPlayer(__instance);
+
             // Ensure HUD component
             if (hudComponent == null)
             {
@@ -630,6 +627,11 @@ namespace MegaCrossbows
                 ammoDmg = ammoItem.GetDamage();
 
             float basePierce = weaponDmg.m_pierce + ammoDmg.m_pierce;
+
+            // Override per-level damage for MegaShot
+            if (MegaShotItem.IsMegaShot(weapon))
+                basePierce = MegaShotItem.GetPierceDamage(weapon.m_quality) + ammoDmg.m_pierce;
+
             float overallMult = MegaCrossbowsPlugin.DamageMultiplier.Value;
 
             // Count enabled damage types

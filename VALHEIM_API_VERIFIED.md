@@ -206,4 +206,29 @@ if (ammoItem != null && ammoItem.m_shared.m_attack.m_attackProjectile != null)
 
 ---
 
+### Custom Item Registration (MegaShot)
+**Verified working:**
+- ? `ObjectDB.m_items` — Public list, can add custom prefabs
+- ? `ObjectDB.m_recipes` — Public list, can add custom Recipe instances
+- ? `ObjectDB.Awake()` — Postfix works for item/recipe registration
+- ? `ScriptableObject.CreateInstance<Recipe>()` — Creates recipe at runtime
+- ? `Object.Instantiate(prefab)` — Clones item prefab
+- ? `Object.DontDestroyOnLoad(go)` — Keeps prefab across scene loads
+- ? `Recipe.m_item`, `m_craftingStation`, `m_resources` — Writable fields
+- ? `Piece.Requirement` — Can construct and assign `m_resItem`, `m_amount`, `m_amountPerLevel`
+- ? `ItemDrop.ItemData.SharedData.m_maxQuality` — Controls max upgrade levels
+- ? `ItemDrop.ItemData.m_quality` — Current quality level (1-based)
+
+**Needs verification (wrapped in try-catch / reflection):**
+- ?? `ObjectDB.m_itemByHash` — Private/internal dictionary, accessed via reflection
+- ?? `ZNetScene.m_namedPrefabs` — Private/internal dictionary, accessed via reflection
+- ?? `ZNetScene.m_prefabs` — Private/internal list, accessed via reflection
+- ?? `ItemDrop.ItemData.GetDamage()` — Manually patched (not attribute-based) for per-level damage
+- ?? `ObjectDB.GetItemPrefab(string)` — Invoked via reflection, fallback: search m_items
+
+**Verified NOT accessible (requires reflection):**
+- ? `ZNetScene.m_namedPrefabs` — Not a public field (use reflection)
+
+---
+
 This document is based on actual testing and verified working code from MegaCrossbows v2.9.1.
