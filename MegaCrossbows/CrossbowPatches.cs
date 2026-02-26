@@ -39,6 +39,8 @@ namespace MegaCrossbows
     public class CrossbowHUD : MonoBehaviour
     {
         public static bool showHUD = false;
+        public static bool showScope = false;
+        public static float scopeZoomLevel = 1f;
         public static string ammoText = "";
         public static string distanceText = "";
         public static string levelText = "";
@@ -46,9 +48,27 @@ namespace MegaCrossbows
         private GUIStyle ammoStyle;
         private GUIStyle distanceStyle;
         private GUIStyle levelStyle;
+        private GUIStyle scopeZoomStyle;
+
+        // Scope overlay texture (generated once, recreated on resolution change)
+        private Texture2D scopeOverlay;
+        private int scopeTexW;
+        private int scopeTexH;
 
         void OnGUI()
         {
+            // Scope overlay (rendered underneath HUD elements)
+            if (showScope)
+            {
+                try
+                {
+                    EnsureScopeTexture();
+                    if (scopeOverlay != null)
+                        DrawScopeOverlay();
+                }
+                catch { }
+            }
+
             if (!showHUD) return;
 
             if (ammoStyle == null)
@@ -69,6 +89,11 @@ namespace MegaCrossbows
                 levelStyle.fontStyle = FontStyle.Bold;
                 levelStyle.normal.textColor = new Color(1f, 0.85f, 0.3f, 0.9f);
                 levelStyle.alignment = TextAnchor.MiddleRight;
+
+                scopeZoomStyle = new GUIStyle();
+                scopeZoomStyle.fontSize = 14;
+                scopeZoomStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f, 0.5f);
+                scopeZoomStyle.alignment = TextAnchor.MiddleCenter;
             }
 
             float w = Screen.width;
@@ -88,6 +113,114 @@ namespace MegaCrossbows
             {
                 GUI.Label(new Rect(w / 2f - 100, h / 2f + 40, 200, 30), distanceText, distanceStyle);
             }
+        }
+
+        void OnDestroy()
+        {
+            if (scopeOverlay != null)
+                Destroy(scopeOverlay);
+        }
+
+        private void EnsureScopeTexture()
+        {
+            int tw = Screen.width / 4;
+            int th = Screen.height / 4;
+            if (tw < 64) tw = 64;
+            if (th < 64) th = 64;
+
+            if (scopeOverlay != null && scopeTexW == tw && scopeTexH == th)
+                return;
+
+            scopeTexW = tw;
+            scopeTexH = th;
+
+            if (scopeOverlay != null)
+                Destroy(scopeOverlay);
+
+            scopeOverlay = new Texture2D(tw, th, TextureFormat.RGBA32, false);
+
+            float cx = tw / 2f;
+            float cy = th / 2f;
+            float radius = Mathf.Min(tw, th) * 0.38f;
+            float ringW = 1.5f;
+            float edgeW = 3f;
+
+            Color32[] pixels = new Color32[tw * th];
+            Color32 black = new Color32(0, 0, 0, 255);
+            Color32 clear = new Color32(0, 0, 0, 0);
+            Color32 ring = new Color32(30, 30, 30, 220);
+
+            for (int y = 0; y < th; y++)
+            {
+                for (int x = 0; x < tw; x++)
+                {
+                    float dx = x - cx;
+                    float dy = y - cy;
+                    float dist = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    if (dist > radius + edgeW)
+                        pixels[y * tw + x] = black;
+                    else if (dist > radius)
+                    {
+                        byte a = (byte)(255f * Mathf.Clamp01((dist - radius) / edgeW));
+                        pixels[y * tw + x] = new Color32(0, 0, 0, a);
+                    }
+                    else if (dist > radius - ringW)
+                        pixels[y * tw + x] = ring;
+                    else
+                        pixels[y * tw + x] = clear;
+                }
+            }
+
+            scopeOverlay.SetPixels32(pixels);
+            scopeOverlay.Apply();
+        }
+
+        private void DrawScopeOverlay()
+        {
+            float w = Screen.width;
+            float h = Screen.height;
+
+            // Black overlay with transparent circle (matches screen aspect ratio)
+            GUI.DrawTexture(new Rect(0, 0, w, h), scopeOverlay, ScaleMode.StretchToFill);
+
+            float cx = w / 2f;
+            float cy = h / 2f;
+            float scopeR = Mathf.Min(w, h) * 0.38f;
+            float gap = 15f;
+            float lineW = 1.5f;
+            float lineLen = scopeR * 0.85f;
+
+            // Crosshair lines (dark, semi-transparent)
+            GUI.color = new Color(0f, 0f, 0f, 0.7f);
+            GUI.DrawTexture(new Rect(cx - lineLen, cy - lineW / 2, lineLen - gap, lineW), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(cx + gap, cy - lineW / 2, lineLen - gap, lineW), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(cx - lineW / 2, cy - lineLen, lineW, lineLen - gap), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(cx - lineW / 2, cy + gap, lineW, lineLen - gap), Texture2D.whiteTexture);
+
+            // Center dot (red)
+            GUI.color = new Color(1f, 0.15f, 0.15f, 0.9f);
+            float dotSize = 4f;
+            GUI.DrawTexture(new Rect(cx - dotSize / 2, cy - dotSize / 2, dotSize, dotSize), Texture2D.whiteTexture);
+
+            // Mil-dots along crosshair lines
+            GUI.color = new Color(0f, 0f, 0f, 0.5f);
+            float milSpacing = scopeR * 0.18f;
+            float milSize = 3f;
+            for (int i = 1; i <= 4; i++)
+            {
+                float off = i * milSpacing;
+                GUI.DrawTexture(new Rect(cx - off - milSize / 2, cy - milSize / 2, milSize, milSize), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(cx + off - milSize / 2, cy - milSize / 2, milSize, milSize), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(cx - milSize / 2, cy - off - milSize / 2, milSize, milSize), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(cx - milSize / 2, cy + off - milSize / 2, milSize, milSize), Texture2D.whiteTexture);
+            }
+
+            GUI.color = Color.white;
+
+            // Zoom magnification below scope circle
+            if (scopeZoomStyle != null)
+                GUI.Label(new Rect(cx - 50, cy + scopeR * 0.85f, 100, 20), $"{scopeZoomLevel:F1}x", scopeZoomStyle);
         }
     }
 
@@ -386,6 +519,7 @@ namespace MegaCrossbows
             if (weapon == null || !CrossbowHelper.IsCrossbow(weapon))
             {
                 CrossbowHUD.showHUD = false;
+                CrossbowHUD.showScope = false;
                 if (zooming) ResetZoom();
                 // Reset audio cache when leaving crossbow
                 fireClipSearched = false;
@@ -411,12 +545,15 @@ namespace MegaCrossbows
             if (uiOpen)
             {
                 if (zooming) ResetZoom();
+                CrossbowHUD.showScope = false;
                 try { UpdateHUD(__instance, state); } catch { }
                 return;
             }
 
             // === ZOOM (Right Mouse) ===
             try { HandleZoom(); } catch { }
+            CrossbowHUD.showScope = zooming;
+            CrossbowHUD.scopeZoomLevel = zoomLevel;
 
             // === RELOAD ===
             if (state.isReloading)
@@ -747,20 +884,23 @@ namespace MegaCrossbows
                 }
                 catch { }
 
-                // Spawn HouseFire at impact point on ANY hit
-                try
+                // Spawn HouseFire at impact point on ANY hit (if enabled)
+                if (MegaCrossbowsPlugin.HouseFireEnabled.Value)
                 {
-                    projectile.m_onHit = (OnProjectileHit)System.Delegate.Combine(
-                        projectile.m_onHit,
-                        new OnProjectileHit((Collider col, Vector3 hitPoint, bool water) =>
-                        {
-                            if (!water)
+                    try
+                    {
+                        projectile.m_onHit = (OnProjectileHit)System.Delegate.Combine(
+                            projectile.m_onHit,
+                            new OnProjectileHit((Collider col, Vector3 hitPoint, bool water) =>
                             {
-                                HouseFireHelper.SpawnFire(hitPoint);
-                            }
-                        }));
+                                if (!water)
+                                {
+                                    HouseFireHelper.SpawnFire(hitPoint);
+                                }
+                            }));
+                    }
+                    catch { }
                 }
-                catch { }
             }
 
             // 7. AOE � we handle AOE ourselves in PatchCrossbowAOE (Character.Damage postfix)
@@ -1300,6 +1440,7 @@ namespace MegaCrossbows
                 if (!MegaCrossbowsPlugin.ModEnabled.Value) return;
                 if (hit == null) return;
                 if (hit.m_skill != Skills.SkillType.Crossbows) return;
+                if (!DestroyObjectsHelper.IsDestroyTagged(hit)) return;
 
                 float radius = MegaCrossbowsPlugin.AoeRadius.Value;
                 if (radius <= 0f) return;
@@ -1739,6 +1880,10 @@ namespace MegaCrossbows
 
             // Buildings are excluded from destroy mode — they get HouseFire instead
             if (target is WearNTear) return;
+
+            // Trees/logs must die through Valheim's normal path so they fall,
+            // spawn logs, split into pieces, and drop wood properly
+            if (target is TreeBase || target is TreeLog) return;
 
             try
             {

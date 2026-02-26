@@ -133,14 +133,17 @@ Two-layer approach for reliable DoT:
 - Tags bolt with `m_chop=999999, m_pickaxe=999999` at fire time
 - Destroy patches detect tagged bolts by checking `m_chop >= 999000 || m_pickaxe >= 999000`
 - AOE destruction via `Physics.OverlapSphere` with configured AOE radius
+- **AOE character splash** (`PatchCrossbowAOE`) only applies in ALT mode (destroy-tagged bolts)
 - Recursion guard: `isApplyingAOE` flag prevents infinite recursion
 - Patched types: `TreeBase`, `TreeLog`, `Destructible`, `MineRock`, `MineRock5`
+- **Trees/Logs**: `ForceDestroyIfNeeded` is SKIPPED — the 999999 damage kills them through Valheim's normal death path so the full sequence plays (fall → log → split → wood drops)
 - **Buildings (`WearNTear`) are EXCLUDED** from destroy mode — they are never instant-destroyed
 - Ashlands cliffs (`cliff_ashlands*` on `static_solid` layer) are static terrain — NOT destroyable
 
 ### 5. HouseFire (`HouseFireHelper`)
-- When ALT-mode bolt hits ANYTHING (terrain, creatures, buildings, trees, rocks, grass), spawns Valheim's native `Fire` at impact point
-- Implemented via `Projectile.m_onHit` callback attached in `FireBolt` — fires on every hit type including bare ground
+- **Configurable on/off** via `HouseFireEnabled` config (default: true)
+- When enabled and ALT-mode bolt hits ANYTHING (terrain, creatures, buildings, trees, rocks, grass), spawns Valheim's native `Fire` at impact point
+- Implemented via `Projectile.m_onHit` callback attached in `FireBolt` — only attached when `HouseFireEnabled.Value` is true
 - Forces `m_burnable = true` on nearby `WearNTear` pieces so stone, black marble, and grausten burn
 - All Fire properties configurable: damage, radius, tick interval, spread, smoke die chance, max smoke
 - Prefab found at runtime: tries known names, then searches `Cinder.m_houseFirePrefab`, then any prefab with `Fire` component
@@ -159,6 +162,9 @@ Two-layer approach for reliable DoT:
 ### 8. Zoom System (`HandleZoom` / `ResetZoom`)
 - **Right mouse hold** = zoom in, scroll wheel adjusts level
 - Modifies `GameCamera.instance.m_fov`
+- Camera distance set to 0 for first-person scope view
+- **Scope overlay**: `CrossbowHUD` renders a procedural circular scope with black vignette, crosshair reticle, mil-dots, red center dot, and zoom level text
+- Scope texture generated at 1/4 screen resolution, recreated on resolution change
 - FOV restored on release or when UI opens
 
 ### 9. Magazine / Reload
@@ -166,7 +172,9 @@ Two-layer approach for reliable DoT:
 - At zero ? 2-second reload with HUD message
 
 ### 10. HUD (`CrossbowHUD` MonoBehaviour)
-- `OnGUI()` renders ammo count, zoom level, distance to target
+- `OnGUI()` renders scope overlay (when zooming), ammo count, zoom level, distance to target
+- Scope overlay: procedural circular viewport with reticle, mil-dots, zoom text
+- Scope state communicated via `showScope` and `scopeZoomLevel` static fields
 - HUD throttled to 10 updates/sec for performance
 
 ### 11. Building Damage (`PatchBuildingDamage` on `WearNTear.Damage`)
@@ -247,6 +255,7 @@ Config auto-reloads on save (FileSystemWatcher).
 ### 8. HouseFire (ALT-mode fire on impact)
 | Key | Type | Default | Range | Description |
 |---|---|---|---|---|
+| `Enabled` | bool | `true` | — | Enable/disable HouseFire spawning in ALT mode |
 | `FireDamage` | float | `10` | 1-100 | Fire damage per tick |
 | `DotRadius` | float | `1` | 1-10 | Radius of fire damage sphere |
 | `TickInterval` | float | `1` | 0.1-5 | Seconds between damage ticks (lower = faster) |

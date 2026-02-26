@@ -57,6 +57,7 @@ namespace MegaCrossbows
         public static ConfigEntry<float> BuildingFireDuration;
 
         // HouseFire
+        public static ConfigEntry<bool> HouseFireEnabled;
         public static ConfigEntry<float> HouseFireDamage;
         public static ConfigEntry<float> HouseFireRadius;
         public static ConfigEntry<float> HouseFireTickInterval;
@@ -151,6 +152,8 @@ namespace MegaCrossbows
                 new ConfigDescription("How long buildings burn (1 = normal Ashlands duration, 10 = 10x duration)", new AcceptableValueRange<float>(1f, 10f)));
 
             // HouseFire (ALT-mode fire spawned on impact)
+            HouseFireEnabled = Config.Bind("8. HouseFire", "Enabled", true,
+                "Enable HouseFire spawning in ALT mode (set to false to disable fire on impact)");
             HouseFireDamage = Config.Bind("8. HouseFire", "FireDamage", 10f,
                 new ConfigDescription("Fire damage per tick to buildings/creatures in radius (default: 10)", new AcceptableValueRange<float>(1f, 100f)));
             HouseFireRadius = Config.Bind("8. HouseFire", "DotRadius", 1f,
