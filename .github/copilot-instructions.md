@@ -110,6 +110,8 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 - Vanilla attack is **blocked** (`PatchBlockVanillaAttack` on `Humanoid.StartAttack`)
 - Blocking/shield stance **blocked** while holding crossbow (`PatchBlockBlocking`)
 - Stamina drain **blocked** for crossbows (`PatchBlockStamina`)
+- **Ammo fallback**: `Player.GetAmmoItem()` returns null when vanilla loading is blocked; `FireBolt` falls back to searching inventory directly for bolts matching `weapon.m_shared.m_ammoType`
+- **Try-catch protection**: `HandleZoom`, `FireBolt` body, and `UpdateHUD` are all wrapped in try-catch to prevent any single exception from killing the entire fire path
 
 ### 2. Damage System — Split Damage
 Base pierce damage (weapon + ammo) is the **total damage pool**, divided evenly across all **enabled** damage types, then scaled by `BaseMultiplier`:

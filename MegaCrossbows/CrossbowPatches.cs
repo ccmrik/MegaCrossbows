@@ -411,12 +411,12 @@ namespace MegaCrossbows
             if (uiOpen)
             {
                 if (zooming) ResetZoom();
-                UpdateHUD(__instance, state);
+                try { UpdateHUD(__instance, state); } catch { }
                 return;
             }
 
             // === ZOOM (Right Mouse) ===
-            HandleZoom();
+            try { HandleZoom(); } catch { }
 
             // === RELOAD ===
             if (state.isReloading)
@@ -427,7 +427,7 @@ namespace MegaCrossbows
                     state.magazineAmmo = MegaCrossbowsPlugin.MagazineCapacity.Value;
                     __instance.Message(MessageHud.MessageType.Center, "<color=green>RELOADED</color>");
                 }
-                UpdateHUD(__instance, state);
+                try { UpdateHUD(__instance, state); } catch { }
                 return;
             }
 
@@ -477,7 +477,7 @@ namespace MegaCrossbows
                 catch { }
             }
 
-            UpdateHUD(__instance, state);
+            try { UpdateHUD(__instance, state); } catch { }
         }
 
         // ---- Zoom ----
@@ -584,9 +584,38 @@ namespace MegaCrossbows
 
         private static void FireBolt(Player player, ItemDrop.ItemData weapon)
         {
-            // 1. Find projectile prefab: ammo -> weapon primary -> weapon secondary
+            try
+            {
+            // 1. Find projectile prefab: ammo -> inventory fallback -> weapon primary -> weapon secondary
             GameObject prefab = null;
             var ammoItem = player.GetAmmoItem();
+
+            // Fallback: if GetAmmoItem() returned null (vanilla crossbow loading was
+            // blocked by PatchBlockVanillaAttack so no bolt is "loaded"), search the
+            // player's inventory directly for a bolt matching the weapon's ammo type.
+            if (ammoItem == null)
+            {
+                try
+                {
+                    string ammoType = weapon.m_shared?.m_ammoType;
+                    if (!string.IsNullOrEmpty(ammoType))
+                    {
+                        var inv = player.GetInventory();
+                        if (inv != null)
+                        {
+                            foreach (var item in inv.GetAllItems())
+                            {
+                                if (item == null || item.m_shared == null) continue;
+                                if (item.m_shared.m_ammoType != ammoType) continue;
+                                if (item.m_shared.m_attack?.m_attackProjectile == null) continue;
+                                ammoItem = item;
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
 
             if (ammoItem != null && ammoItem.m_shared?.m_attack?.m_attackProjectile != null)
                 prefab = ammoItem.m_shared.m_attack.m_attackProjectile;
@@ -874,6 +903,9 @@ namespace MegaCrossbows
                 }
 
             }
+            catch { }
+
+            } // end top-level try
             catch { }
         }
 
