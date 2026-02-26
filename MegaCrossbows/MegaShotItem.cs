@@ -86,6 +86,13 @@ namespace MegaCrossbows
             {
                 CreatePrefab(objectDB);
                 if (megaShotPrefab == null) return;
+
+                // New ObjectDB instance — old recipe/stations are stale, must re-create
+                megaShotRecipe = null;
+                currentRecipeLevel = -1;
+                cachedWorkbench = null;
+                cachedForge = null;
+                cachedBlackForge = null;
             }
 
             // Enforce m_maxQuality = 4 on prefab and recipe item
@@ -106,9 +113,21 @@ namespace MegaCrossbows
             // Cache crafting stations (may find more on later calls)
             CacheStations(objectDB);
 
-            // Create recipe if not yet done
-            if (megaShotRecipe == null)
+            // Create recipe if not yet done, or re-create if stale (not in current ObjectDB)
+            bool recipeInDB = false;
+            if (megaShotRecipe != null && objectDB.m_recipes != null)
+            {
+                foreach (var r in objectDB.m_recipes)
+                {
+                    if (r == megaShotRecipe) { recipeInDB = true; break; }
+                }
+            }
+            if (!recipeInDB)
+            {
+                megaShotRecipe = null;
+                currentRecipeLevel = -1;
                 CreateRecipe(objectDB);
+            }
 
             // Retry resource initialization if previous call had an incomplete ObjectDB
             // (first ObjectDB.Awake at menu may not have all item prefabs loaded)
@@ -177,17 +196,15 @@ namespace MegaCrossbows
                 // Register in ObjectDB
                 objectDB.m_items.Add(megaShotPrefab);
 
-                // Update ObjectDB's internal hash lookup
+                // Rebuild ObjectDB's internal hash maps (m_itemByHash + m_itemByData)
+                // so inventory loading can resolve MegaShot items from save data.
+                // UpdateRegisters() rebuilds both maps from m_items.
                 try
                 {
-                    var field = typeof(ObjectDB).GetField("m_itemByHash",
+                    var updateMethod = typeof(ObjectDB).GetMethod("UpdateRegisters",
                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (field != null)
-                    {
-                        var dict = field.GetValue(objectDB) as Dictionary<int, GameObject>;
-                        if (dict != null)
-                            dict[megaShotPrefab.name.GetStableHashCode()] = megaShotPrefab;
-                    }
+                    if (updateMethod != null)
+                        updateMethod.Invoke(objectDB, null);
                 }
                 catch { }
             }

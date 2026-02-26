@@ -83,6 +83,8 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 - Cloned from `CrossbowRipper` prefab at runtime in `ObjectDB.Awake`
 - **Clone safety**: parented under an inactive container GO so `activeSelf=true` but `activeInHierarchy=false` — prevents `ZNetView.Awake()` from registering a live ZDO. When Valheim `Instantiate()`s from it, the copy is root-level and fully active. Only added to `m_namedPrefabs` dict (NOT `m_prefabs` list) to avoid NullRef in `ZNetScene.RemoveObjects`.
 - Registered in ObjectDB + ZNetScene (via reflection for private fields)
+- **ObjectDB registration**: After adding to `m_items`, calls `ObjectDB.UpdateRegisters()` via reflection to rebuild BOTH `m_itemByHash` (name hash → prefab) AND `m_itemByData` (SharedData → prefab). The `m_itemByData` map is critical — without it, Valheim can't resolve MegaShot items from save data during inventory loading.
+- **Recipe lifecycle**: `megaShotRecipe` is reset to null when a new ObjectDB is created (entering world) so it gets re-created for the new instance. Recipe presence is verified against `objectDB.m_recipes` on each Register call.
 - **4 quality levels** (vanilla max) with `m_maxQuality = 4`
 - **Per-level damage** (linear): 20, 40, 60, 80 pierce
   - Encoded via `m_damages.m_pierce = 20` and `m_damagesPerLevel.m_pierce = 20` for native tooltip support

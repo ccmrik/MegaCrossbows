@@ -108,6 +108,16 @@
 **Verified working:**
 - ? `Physics.Raycast(Ray, out RaycastHit, float)` - Returns bool
 
+### ObjectDB
+**Verified working:**
+- ? `ObjectDB.Awake()` - Postfix patch works (sets m_instance, calls UpdateRegisters)
+- ? `ObjectDB.m_items` - List<GameObject> of all item prefabs (populated from serialization before Awake)
+- ? `ObjectDB.m_recipes` - List<Recipe> of all recipes
+- ? `ObjectDB.m_itemByHash` - Private Dictionary<int, GameObject> (name hash ? prefab)
+- ? `ObjectDB.m_itemByData` - Private Dictionary<SharedData, GameObject> (SharedData ? prefab) — **MUST be populated for inventory loading**
+- ? `ObjectDB.UpdateRegisters()` - Private instance method, rebuilds m_itemByHash + m_itemByData from m_items. Call via reflection after adding custom items.
+- ? `ObjectDB.CopyOtherDB(ObjectDB)` - Copies m_items/m_recipes/m_StatusEffects then calls UpdateRegisters
+
 ### HitData.DamageTypes
 **Verified working:**
 - ? `m_damage` - Base damage
