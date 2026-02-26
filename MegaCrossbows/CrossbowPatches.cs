@@ -691,11 +691,12 @@ namespace MegaCrossbows
                 }
 
                 // Lock camera to first-person scope view every frame
+                // Negative distance pushes camera forward past the player model
                 if (GameCamera.instance != null)
                 {
                     GameCamera.instance.m_fov = savedFOV / zoomLevel;
-                    SetCamFloat(camDistField, 0f);
-                    SetCamFloat(camMinDistField, 0f);
+                    SetCamFloat(camDistField, -0.5f);
+                    SetCamFloat(camMinDistField, -1f);
                     SetCamFloat(camMaxDistField, 0f);
                 }
             }
