@@ -141,7 +141,7 @@ namespace MegaCrossbows
 
             float cx = tw / 2f;
             float cy = th / 2f;
-            float radius = Mathf.Min(tw, th) * 0.48f;
+            float radius = th / 2f - 2f;
             float ringW = 1.5f;
             float edgeW = 3f;
 
@@ -186,7 +186,7 @@ namespace MegaCrossbows
 
             float cx = w / 2f;
             float cy = h / 2f;
-            float scopeR = Mathf.Min(w, h) * 0.48f;
+            float scopeR = h / 2f - 8f;
             float gap = 15f;
             float lineW = 1.5f;
             float lineLen = scopeR * 0.85f;
