@@ -22,8 +22,8 @@ namespace MegaCrossbows
         private static int currentRecipeLevel = -1;
 
         // Per-level pierce damage (index 0 = level 1, index 3 = level 4)
-        // Linear: 20, 40, 60, 80 — also encoded via m_damagesPerLevel for native tooltip support
-        public static readonly float[] PierceDamagePerLevel = { 20f, 40f, 60f, 80f };
+        // Linear: 40, 60, 80, 100 — also encoded via m_damagesPerLevel for native tooltip support
+        public static readonly float[] PierceDamagePerLevel = { 40f, 60f, 80f, 100f };
 
         // Per-level recipe ingredient prefab names (all 5 each)
         private static readonly string[][] IngredientNames = new string[][]

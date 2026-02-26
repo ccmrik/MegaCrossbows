@@ -86,8 +86,8 @@ BepInEx Harmony mod for Valheim that transforms crossbows into rapid-fire weapon
 - **ObjectDB registration**: After adding to `m_items`, calls `ObjectDB.UpdateRegisters()` via reflection to rebuild BOTH `m_itemByHash` (name hash → prefab) AND `m_itemByData` (SharedData → prefab). The `m_itemByData` map is critical — without it, Valheim can't resolve MegaShot items from save data during inventory loading.
 - **Recipe lifecycle**: `megaShotRecipe` is reset to null when a new ObjectDB is created (entering world) so it gets re-created for the new instance. Recipe presence is verified against `objectDB.m_recipes` on each Register call.
 - **4 quality levels** (vanilla max) with `m_maxQuality = 4`
-- **Per-level damage** (linear): 20, 40, 60, 80 pierce
-  - Encoded via `m_damages.m_pierce = 20` and `m_damagesPerLevel.m_pierce = 20` for native tooltip support
+- **Per-level damage** (linear): 40, 60, 80, 100 pierce
+  - Encoded via `m_damages.m_pierce = 40` and `m_damagesPerLevel.m_pierce = 20` for native tooltip support
   - Also enforced via manual `GetDamage()` and `GetDamage(int, float)` Harmony postfixes + FireBolt override
 - **Per-level recipes** with completely different ingredients per level (prefab ID in parens):
 - Level 1: 5 Wood (`Wood`), 5 Leather Scraps (`LeatherScraps`), 5 Resin (`Resin`)
