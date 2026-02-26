@@ -434,6 +434,10 @@ namespace MegaCrossbows
         // HUD throttle
         private static float lastHudUpdate = 0f;
 
+        // Player model visibility for scope view
+        private static bool playerModelHidden = false;
+        private static Dictionary<Renderer, UnityEngine.Rendering.ShadowCastingMode> savedShadowModes;
+
         private static CrossbowState GetState(Player player)
         {
             long id = player.GetPlayerID();
@@ -521,6 +525,7 @@ namespace MegaCrossbows
                 CrossbowHUD.showHUD = false;
                 CrossbowHUD.showScope = false;
                 if (zooming) ResetZoom();
+                if (playerModelHidden) ShowPlayerModel();
                 // Reset audio cache when leaving crossbow
                 fireClipSearched = false;
                 cachedFireClip = null;
@@ -677,6 +682,7 @@ namespace MegaCrossbows
                     savedMaxDistance = GetCamFloat(camMaxDistField, 6f);
                     zooming = true;
                     zoomLevel = MegaCrossbowsPlugin.ZoomMin.Value;
+                    HidePlayerModel();
                 }
 
                 // Scroll adjusts zoom magnification, not camera distance
@@ -691,13 +697,12 @@ namespace MegaCrossbows
                 }
 
                 // Lock camera to first-person scope view every frame
-                // Small positive offset pushes camera forward past player model
                 if (GameCamera.instance != null)
                 {
                     GameCamera.instance.m_fov = savedFOV / zoomLevel;
-                    SetCamFloat(camDistField, 0.5f);
+                    SetCamFloat(camDistField, 0f);
                     SetCamFloat(camMinDistField, 0f);
-                    SetCamFloat(camMaxDistField, 1f);
+                    SetCamFloat(camMaxDistField, 0f);
                 }
             }
             else if (zooming)
@@ -709,6 +714,7 @@ namespace MegaCrossbows
         private static void ResetZoom()
         {
             zooming = false;
+            ShowPlayerModel();
             if (GameCamera.instance != null)
             {
                 GameCamera.instance.m_fov = savedFOV;
@@ -716,6 +722,55 @@ namespace MegaCrossbows
                 SetCamFloat(camMinDistField, savedMinDistance);
                 SetCamFloat(camMaxDistField, savedMaxDistance);
             }
+        }
+
+        // ---- Player Model Visibility (scope view) ----
+
+        /// <summary>
+        /// Hides the local player model by setting all renderers to ShadowsOnly.
+        /// The character becomes invisible to the camera but still casts shadows.
+        /// </summary>
+        private static void HidePlayerModel()
+        {
+            if (playerModelHidden) return;
+            try
+            {
+                var player = Player.m_localPlayer;
+                if (player == null) return;
+                var renderers = player.GetComponentsInChildren<Renderer>();
+                savedShadowModes = new Dictionary<Renderer, UnityEngine.Rendering.ShadowCastingMode>();
+                foreach (var r in renderers)
+                {
+                    if (r == null) continue;
+                    if (r.GetType().Name.Contains("Particle")) continue;
+                    savedShadowModes[r] = r.shadowCastingMode;
+                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
+                }
+                playerModelHidden = true;
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Restores the local player model to its original rendering mode.
+        /// </summary>
+        private static void ShowPlayerModel()
+        {
+            if (!playerModelHidden) return;
+            try
+            {
+                if (savedShadowModes != null)
+                {
+                    foreach (var kvp in savedShadowModes)
+                    {
+                        if (kvp.Key != null)
+                            kvp.Key.shadowCastingMode = kvp.Value;
+                    }
+                    savedShadowModes = null;
+                }
+                playerModelHidden = false;
+            }
+            catch { }
         }
 
         // ---- Fire ----
